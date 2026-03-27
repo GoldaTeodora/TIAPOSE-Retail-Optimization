@@ -1,0 +1,8 @@
+Day,Date,IsWeekend,Clientes,J,X,PR,Lucro,Unidades,HR_Cost
+Mon,Day 1,False,59,10,0,0.0,521.0,1062,600.0
+Tue,Day 2,False,40,7,0,0.0,340.0,720,420.0
+Wed,Day 3,False,41,7,0,0.03580431067287091,400.0,779,420.0
+Thu,Day 4,False,40,7,0,0.03524939753852356,380.0,760,420.0
+Fri,Day 5,False,43,7,0,0.3,336.0,1008,420.0
+Sat,Day 6,True,54,0,0,0.3,0.0,0,0.0
+Sun,Day 7,True,87,0,12,0.0,456.0,1512,1140.0

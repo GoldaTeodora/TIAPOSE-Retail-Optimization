@@ -1,0 +1,1 @@
+"""TIAPOSE Retail Optimization Package."""

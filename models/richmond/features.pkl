@@ -1,0 +1,16 @@
+Day_of_Week
+Is_Weekend
+Month
+Quarter
+Day_of_Year
+Is_Black_Friday
+Is_Tourist_Event
+Is_Holiday
+Is_Memorial_Day
+Event_Nearby
+Holiday_Nearby
+Lag_Customers_7
+Lag_Customers_14
+Rolling_Mean_7
+Rolling_Std_7
+Rolling_Mean_30
