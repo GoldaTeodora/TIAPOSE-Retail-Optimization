@@ -34,12 +34,20 @@ class XGBoostForecaster(BaseForecaster):
             X_train: DataFrame/array com features
             y_train: Target de treino
         """
+        y_arr = y_train.values if hasattr(y_train, 'values') else np.asarray(y_train)
+        q90 = np.quantile(y_arr, 0.90)
+        q98 = np.quantile(y_arr, 0.98)
+        sample_weight = np.ones_like(y_arr, dtype=float)
+        sample_weight[y_arr >= q90] *= 2.0
+        sample_weight[y_arr >= q98] *= 2.5
+
         base_model = XGBRegressor(
             n_estimators=300,
             max_depth=5,
             learning_rate=0.05,
             subsample=0.8,
             colsample_bytree=0.8,
+            gamma=0.0,
             objective='reg:squarederror',
             random_state=42,
             verbosity=0
@@ -55,24 +63,25 @@ class XGBoostForecaster(BaseForecaster):
                 'subsample': [0.75, 0.85, 1.0],
                 'colsample_bytree': [0.75, 0.85, 1.0],
                 'min_child_weight': [1, 3, 5],
+                'gamma': [0.0, 0.1, 0.3],
                 'reg_alpha': [0.0, 0.1, 0.5],
                 'reg_lambda': [1.0, 1.5, 2.0],
             }
             search = RandomizedSearchCV(
                 estimator=base_model,
                 param_distributions=param_dist,
-                n_iter=20,
+                n_iter=30,
                 scoring='neg_mean_absolute_error',
                 cv=tscv,
                 random_state=42,
                 n_jobs=-1,
                 verbose=0,
             )
-            search.fit(X_train, y_train)
+            search.fit(X_train, y_train, sample_weight=sample_weight)
             self.model = search.best_estimator_
         else:
             self.model = base_model
-            self.model.fit(X_train, y_train)
+            self.model.fit(X_train, y_train, sample_weight=sample_weight)
 
         self.feature_names = X_train.columns.tolist() if hasattr(X_train, 'columns') else None
         self.is_trained = True

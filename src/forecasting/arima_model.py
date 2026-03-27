@@ -24,15 +24,74 @@ class ARIMAForecaster(BaseForecaster):
             X_train: Ignorado (ARIMA é univariado)
             y_train: Série temporal de treino
         """
-        # auto_arima: busca (p,d,q) e (P,D,Q) com sazonalidade
+        y = y_train.values if hasattr(y_train, 'values') else np.asarray(y_train)
+        if len(y) < 30:
+            self.model = auto_arima(
+                y,
+                seasonal=False,
+                suppress_warnings=True,
+                trace=False,
+                error_action='ignore'
+            )
+            self.is_trained = True
+            return
+
+        val_size = min(28, max(14, len(y) // 6))
+        y_fit = y[:-val_size]
+        y_val = y[-val_size:]
+
+        candidates = [
+            {'seasonal': True, 'm': 7},
+            {'seasonal': False, 'm': 1},
+        ]
+
+        best_model = None
+        best_mae = np.inf
+
+        for cfg in candidates:
+            try:
+                model = auto_arima(
+                    y_fit,
+                    seasonal=cfg['seasonal'],
+                    m=cfg['m'],
+                    max_p=5,
+                    max_q=5,
+                    max_d=2,
+                    max_P=2,
+                    max_Q=2,
+                    max_D=1,
+                    maxiter=200,
+                    stepwise=True,
+                    suppress_warnings=True,
+                    error_action='ignore',
+                    trace=False,
+                )
+                pred = model.predict(n_periods=val_size)
+                mae = np.mean(np.abs(y_val - pred))
+                if mae < best_mae:
+                    best_mae = mae
+                    best_model = cfg
+            except Exception:
+                continue
+
+        if best_model is None:
+            best_model = {'seasonal': True, 'm': 7}
+
         self.model = auto_arima(
-            y_train.values if hasattr(y_train, 'values') else y_train,
-            seasonal=True,
-            m=7,  # Sazonalidade semanal
-            max_p=5, max_q=5, max_d=2,
-            maxiter=100,
+            y,
+            seasonal=best_model['seasonal'],
+            m=best_model['m'],
+            max_p=5,
+            max_q=5,
+            max_d=2,
+            max_P=2,
+            max_Q=2,
+            max_D=1,
+            maxiter=200,
+            stepwise=True,
             suppress_warnings=True,
-            trace=False
+            error_action='ignore',
+            trace=False,
         )
         self.is_trained = True
     

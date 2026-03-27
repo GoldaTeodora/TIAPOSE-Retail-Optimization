@@ -22,6 +22,63 @@ from forecasting.ml_model import XGBoostForecaster
 from forecasting.arimax_model import ARIMAXForecaster
 
 
+def _easter_sunday(year):
+    """Computa a data da Páscoa (calendário gregoriano)."""
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return pd.Timestamp(year=year, month=month, day=day)
+
+
+def _known_closed_day_mask(dates):
+    """Mascara de dias de loja fechada por calendário conhecido."""
+    dates = pd.to_datetime(dates)
+    christmas = (dates.dt.month == 12) & (dates.dt.day == 25)
+    easter = dates == dates.dt.year.map(_easter_sunday)
+    return (christmas | easter).astype(int)
+
+
+def _build_feature_frame(df):
+    feat = df.copy()
+
+    if 'Date' in feat.columns:
+        dt = pd.to_datetime(feat['Date'])
+        feat['Year'] = dt.dt.year
+        feat['WeekOfYear'] = dt.dt.isocalendar().week.astype(int)
+        feat['DayOfMonth'] = dt.dt.day
+        feat['Is_Christmas'] = ((dt.dt.month == 12) & (dt.dt.day == 25)).astype(int)
+        feat['Is_Easter_Sunday'] = (dt == dt.dt.year.map(_easter_sunday)).astype(int)
+        feat['Is_Known_Closed_Day'] = _known_closed_day_mask(dt)
+
+    if 'TouristEvent' in feat.columns and 'Is_Tourist_Event' not in feat.columns:
+        feat['Is_Tourist_Event'] = feat['TouristEvent'].astype(str).str.lower().map({'yes': 1, 'no': 0}).fillna(0)
+
+    if 'Num_Customers' in feat.columns:
+        feat['Lag_Customers_1'] = feat['Num_Customers'].shift(1)
+        feat['Lag_Customers_7'] = feat['Num_Customers'].shift(7)
+        feat['Lag_Customers_14'] = feat['Num_Customers'].shift(14)
+        feat['Lag_Customers_28'] = feat['Num_Customers'].shift(28)
+        feat['Rolling_Mean_14'] = feat['Num_Customers'].rolling(14).mean()
+        feat['Rolling_Std_14'] = feat['Num_Customers'].rolling(14).std()
+
+    for col in XGBOOST_FEATURES:
+        if col not in feat.columns:
+            feat[col] = 0
+
+    return feat[XGBOOST_FEATURES].ffill().bfill().fillna(0)
+
+
 def train_store_models(store_name, verbose=True):
     """Treina os 4 modelos principais para uma loja.
 
@@ -41,7 +98,7 @@ def train_store_models(store_name, verbose=True):
     df = pd.read_csv(path)
 
     y = df['Num_Customers'].values
-    X = df[XGBOOST_FEATURES].fillna(0).copy()
+    X = _build_feature_frame(df)
 
     train_end = len(df) - 7
     y_train = y[:train_end]
