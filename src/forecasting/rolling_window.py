@@ -15,6 +15,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
+print("[DEBUG] Script rolling_window.py iniciado.")
 import numpy as np
 import pandas as pd
 from forecasting.naive_model import SeasonalNaiveForecaster
@@ -26,76 +28,39 @@ from core.metrics import calculate_metrics
 from core.config import STORES, get_data_path, get_report_path, XGBOOST_FEATURES
 
 
-def _easter_sunday(year):
-    """Computa a data da Páscoa (calendário gregoriano)."""
-    a = year % 19
-    b = year // 100
-    c = year % 100
-    d = b // 4
-    e = b % 4
-    f = (b + 8) // 25
-    g = (b - f + 1) // 3
-    h = (19 * a + b - d - g + 15) % 30
-    i = c // 4
-    k = c % 4
-    l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
-    month = (h + l - 7 * m + 114) // 31
-    day = ((h + l - 7 * m + 114) % 31) + 1
-    return pd.Timestamp(year=year, month=month, day=day)
+print(f"[DEBUG] STORES encontrados: {STORES}")
+assert len(STORES) > 0, "A lista STORES está vazia!"
+for store in STORES:
+    data_path = get_data_path(store, raw=False)
+    print(f"[DEBUG] Verificando dados para {store}: {data_path}")
+    assert Path(data_path).exists(), f"Ficheiro de dados não encontrado: {data_path}"
 
-
-def _known_closed_day_mask(dates):
-    """Mascara de dias de loja fechada por calendário conhecido."""
-    dates = pd.to_datetime(dates)
-    christmas = (dates.dt.month == 12) & (dates.dt.day == 25)
-    easter = dates == dates.dt.year.map(_easter_sunday)
-    return (christmas | easter).to_numpy(dtype=bool)
-
-
-def _apply_closed_day_override(y_pred, test_dates):
-    """Força previsão zero em dias de loja fechada conhecidos por calendário."""
-    y_adj = np.asarray(y_pred, dtype=float).copy()
-    closed_mask = _known_closed_day_mask(pd.Series(test_dates))
-    y_adj[closed_mask] = 0.0
-    return np.maximum(y_adj, 0)
-
-
-def _build_feature_frame(df):
-    feat = df.copy()
-
-    if 'Date' in feat.columns:
-        dt = pd.to_datetime(feat['Date'])
-        feat['Year'] = dt.dt.year
-        feat['WeekOfYear'] = dt.dt.isocalendar().week.astype(int)
-        feat['DayOfMonth'] = dt.dt.day
-        feat['Is_Christmas'] = ((dt.dt.month == 12) & (dt.dt.day == 25)).astype(int)
-        feat['Is_Easter_Sunday'] = (dt == dt.dt.year.map(_easter_sunday)).astype(int)
-        feat['Is_Known_Closed_Day'] = _known_closed_day_mask(dt).astype(int)
-
-    if 'TouristEvent' in feat.columns and 'Is_Tourist_Event' not in feat.columns:
-        feat['Is_Tourist_Event'] = feat['TouristEvent'].astype(str).str.lower().map({'yes': 1, 'no': 0}).fillna(0)
-
-    if 'Num_Customers' in feat.columns:
-        feat['Lag_Customers_1'] = feat['Num_Customers'].shift(1)
-        feat['Lag_Customers_7'] = feat['Num_Customers'].shift(7)
-        feat['Lag_Customers_14'] = feat['Num_Customers'].shift(14)
-        feat['Lag_Customers_28'] = feat['Num_Customers'].shift(28)
-        feat['Rolling_Mean_14'] = feat['Num_Customers'].rolling(14).mean()
-        feat['Rolling_Std_14'] = feat['Num_Customers'].rolling(14).std()
-
-    for col in XGBOOST_FEATURES:
-        if col not in feat.columns:
-            feat[col] = 0
-
-    X = feat[XGBOOST_FEATURES].copy()
-    return X.ffill().bfill().fillna(0)
 
 
 def _evaluate_store_fast(store_name, train_ratio=0.85):
     df = pd.read_csv(get_data_path(store_name, raw=False))
     y = df['Num_Customers'].values
-    X = _build_feature_frame(df)
+    from forecasting.advanced_features import AdvancedFeatureEngineer
+    engineer = AdvancedFeatureEngineer(store_name, verbose=False)
+    X, _ = engineer.process_features_complete(df, y=y, outlier_detection=False)
+    for col in XGBOOST_FEATURES:
+        if col not in X.columns:
+            X[col] = 0
+    X = X[XGBOOST_FEATURES].ffill().bfill().fillna(0)
+
+    def _apply_closed_day_override(y_pred, test_dates):
+        """Força previsão zero em dias de loja fechada conhecidos por calendário."""
+        y_adj = np.asarray(y_pred, dtype=float).copy()
+        # Natal
+        closed_mask = pd.to_datetime(test_dates).month == 12
+        closed_mask &= pd.to_datetime(test_dates).day == 25
+        # Páscoa
+        from forecasting.advanced_features import AdvancedFeatureEngineer
+        dt = pd.to_datetime(test_dates)
+        easter_dates = {year: engineer.add_holiday_features(pd.DataFrame({'Date': [f'{year}-01-01']}))['Is_Easter_Sunday'].idxmax() for year in dt.dt.year.unique()}
+        closed_mask |= dt.isin(list(easter_dates.values()))
+        y_adj[closed_mask] = 0.0
+        return np.maximum(y_adj, 0)
 
     split_idx = int(len(df) * train_ratio)
     y_train, y_test = y[:split_idx], y[split_idx:]
@@ -236,3 +201,7 @@ def evaluate_all_stores(train_ratio=0.85):
         'combined_path': str(combined_path),
         'summary_path': str(summary_path),
     }
+
+if __name__ == '__main__':
+    print("[DEBUG] Bloco principal __main__ executado.")
+    evaluate_all_stores()

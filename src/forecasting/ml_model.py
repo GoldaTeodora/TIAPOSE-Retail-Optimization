@@ -108,13 +108,22 @@ class XGBoostForecaster(BaseForecaster):
     
     def save(self, path):
         """Salva modelo XGBoost.
-        
         Args:
             path: Caminho do arquivo
         """
+        print(f"[XGBOOST SAVE] Salvando modelo em: {path}")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'wb') as f:
-            pickle.dump((self.model, self.feature_names), f)
+        path = str(path)
+        try:
+            if path.endswith('.joblib'):
+                import joblib
+                joblib.dump({'model': self.model, 'feature_names': self.feature_names}, path)
+            else:
+                with open(path, 'wb') as f:
+                    pickle.dump((self.model, self.feature_names), f)
+            print(f"[XGBOOST SAVE] Sucesso ao salvar: {path}")
+        except Exception as e:
+            print(f"[XGBOOST SAVE] ERRO ao salvar {path}: {e}")
     
     def load(self, path):
         """Carrega modelo XGBoost.

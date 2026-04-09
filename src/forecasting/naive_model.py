@@ -48,9 +48,14 @@ class SeasonalNaiveForecaster(BaseForecaster):
 
     def save(self, path):
         """Salva modelo Seasonal Naive."""
+        print(f"[NAIVE SAVE] Salvando modelo em: {path}")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'wb') as f:
-            pickle.dump((self.seasonal_period, self.last_season), f)
+        try:
+            with open(path, 'wb') as f:
+                pickle.dump((self.seasonal_period, self.last_season), f)
+            print(f"[NAIVE SAVE] Sucesso ao salvar: {path}")
+        except Exception as e:
+            print(f"[NAIVE SAVE] ERRO ao salvar {path}: {e}")
 
     def load(self, path):
         """Carrega modelo Seasonal Naive."""

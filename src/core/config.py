@@ -77,6 +77,7 @@ XGBOOST_FEATURES = [
     'Is_Christmas', 'Is_Easter_Sunday', 'Is_Known_Closed_Day',
     'Is_Black_Friday', 'Is_Tourist_Event', 'Is_Holiday', 'Is_Memorial_Day',
     'Event_Nearby', 'Holiday_Nearby',
+    'Is_Peak_Day',
     'Lag_Customers_1', 'Lag_Customers_7', 'Lag_Customers_14', 'Lag_Customers_28',
     'Rolling_Mean_7', 'Rolling_Std_7', 'Rolling_Mean_14', 'Rolling_Std_14', 'Rolling_Mean_30'
 ]
@@ -101,7 +102,10 @@ def get_model_path(store_name, model_type):
     """
     store_path = MODELS_PATH / store_name
     store_path.mkdir(parents=True, exist_ok=True)
-    return store_path / f'{model_type}.pkl'
+    if model_type == 'xgboost':
+        return store_path / f'{model_type}.joblib'
+    else:
+        return store_path / f'{model_type}.pkl'
 
 def get_report_path(filename):
     """Retorna caminho para arquivo de relatório."""

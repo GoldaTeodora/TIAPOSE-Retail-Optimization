@@ -28,6 +28,90 @@ from sklearn.preprocessing import StandardScaler
 
 
 class AdvancedFeatureEngineer:
+    def add_holiday_features(self, df):
+        """
+        Adiciona features binárias para feriados nacionais/regionais e datas promocionais.
+        Inclui: Natal, Páscoa, Memorial Day, Black Friday, Thanksgiving, Ano Novo.
+        """
+        df = df.copy()
+        if 'Date' in df.columns:
+            dt = pd.to_datetime(df['Date'])
+            # Natal
+            df['Is_Christmas'] = ((dt.dt.month == 12) & (dt.dt.day == 25)).astype(int)
+            # Ano Novo
+            df['Is_New_Year'] = ((dt.dt.month == 1) & (dt.dt.day == 1)).astype(int)
+            # Memorial Day (última segunda de maio)
+            memorial = (dt.dt.month == 5) & (dt.dt.weekday == 0)
+            for year in dt.dt.year.unique():
+                may = dt[(dt.dt.year == year) & (dt.dt.month == 5)]
+                if not may.empty:
+                    last_monday = may[may.dt.weekday == 0].max()
+                    df.loc[dt == last_monday, 'Is_Memorial_Day'] = 1
+            df['Is_Memorial_Day'] = df['Is_Memorial_Day'].fillna(0).astype(int)
+            # Páscoa
+            def _easter_sunday(year):
+                a = year % 19
+                b = year // 100
+                c = year % 100
+                d = b // 4
+                e = b % 4
+                f = (b + 8) // 25
+                g = (b - f + 1) // 3
+                h = (19 * a + b - d - g + 15) % 30
+                i = c // 4
+                k = c % 4
+                l = (32 + 2 * e + 2 * i - h - k) % 7
+                m = (a + 11 * h + 22 * l) // 451
+                month = (h + l - 7 * m + 114) // 31
+                day = ((h + l - 7 * m + 114) % 31) + 1
+                return pd.Timestamp(year=year, month=month, day=day)
+            easter_dates = {year: _easter_sunday(year) for year in dt.dt.year.unique()}
+            df['Is_Easter_Sunday'] = dt.apply(lambda d: int(d in easter_dates.values()))
+            # Black Friday (sexta após 4ª quinta de novembro)
+            for year in dt.dt.year.unique():
+                nov = dt[(dt.dt.year == year) & (dt.dt.month == 11)]
+                thursdays = nov[nov.dt.weekday == 3]
+                if len(thursdays) >= 4:
+                    thanksgiving = thursdays.iloc[3]
+                    black_friday = thanksgiving + pd.Timedelta(days=1)
+                    df.loc[dt == black_friday, 'Is_Black_Friday'] = 1
+            df['Is_Black_Friday'] = df['Is_Black_Friday'].fillna(0).astype(int)
+            # Thanksgiving (4ª quinta de novembro)
+            for year in dt.dt.year.unique():
+                nov = dt[(dt.dt.year == year) & (dt.dt.month == 11)]
+                thursdays = nov[nov.dt.weekday == 3]
+                if len(thursdays) >= 4:
+                    thanksgiving = thursdays.iloc[3]
+                    df.loc[dt == thanksgiving, 'Is_Thanksgiving'] = 1
+            df['Is_Thanksgiving'] = df['Is_Thanksgiving'].fillna(0).astype(int)
+        self._log("Features de feriados adicionadas")
+        return df
+
+    def add_peak_distance_features(self, df, y, peak_threshold=0.85):
+        """
+        Adiciona features:
+        - DiasDesdeUltimoPico: dias desde o último pico
+        - MagnitudeUltimoPico: valor do último pico
+        Um pico é definido como valor >= percentil 85.
+        """
+        df = df.copy()
+        y = np.array(y)
+        peak_val = np.percentile(y, peak_threshold * 100)
+        is_peak = y >= peak_val
+        dias_desde_ultimo = np.zeros(len(y), dtype=int)
+        mag_ultimo = np.zeros(len(y))
+        last_peak_idx = -1
+        last_peak_val = 0
+        for i in range(len(y)):
+            if is_peak[i]:
+                last_peak_idx = i
+                last_peak_val = y[i]
+            dias_desde_ultimo[i] = i - last_peak_idx if last_peak_idx >= 0 else i
+            mag_ultimo[i] = last_peak_val
+        df['DiasDesdeUltimoPico'] = dias_desde_ultimo
+        df['MagnitudeUltimoPico'] = mag_ultimo
+        self._log("Features DiasDesdeUltimoPico e MagnitudeUltimoPico adicionadas")
+        return df
     """
     Engenheiro de features avançado que detecta padrões complexos nos dados.
     
@@ -250,6 +334,16 @@ class AdvancedFeatureEngineer:
             
         if rolling_mean_col and rolling_mean_col in df.columns and rolling_std_col and rolling_std_col in df.columns:
             df['RollingMean_RollingStd_Interaction'] = df[rolling_mean_col] * df[rolling_std_col]
+
+        # Adicionar Is_Peak_Day: 1 se for feriado OU evento turístico OU ambos
+        holiday_cols = [c for c in ['Is_Holiday', 'Is_Memorial_Day', 'Is_Christmas', 'Is_Easter_Sunday', 'Is_Black_Friday'] if c in df.columns]
+        event_cols = [c for c in ['Is_Tourist_Event', 'Event_Nearby'] if c in df.columns]
+        if holiday_cols or event_cols:
+            df['Is_Peak_Day'] = 0
+            for col in holiday_cols + event_cols:
+                df['Is_Peak_Day'] = df['Is_Peak_Day'] | (df[col] == 1)
+            df['Is_Peak_Day'] = df['Is_Peak_Day'].astype(int)
+            self._log("Feature Is_Peak_Day adicionada")
         
         self._log("Features de interação adicionadas")
         
@@ -384,34 +478,39 @@ class AdvancedFeatureEngineer:
         
         outlier_mask = None
         
+        # ---- PASSO 0: FERIADOS ----
+        df = self.add_holiday_features(df)
+
         # ---- PASSO 1: OUTLIERS ----
         if outlier_detection and y is not None:
             y_cleaned, outlier_mask = self.detect_and_handle_outliers(
                 y, method='iqr_zscore'
             )
-            # Criar coluna com y preparada
-            if 'customers' not in df.columns:
-                df = df.copy()
-            # Não substituimos aqui, apenas retornamos mask
-        
+        else:
+            y_cleaned = y
+
+        # ---- PASSO 1B: DISTÂNCIA/MAGNITUDE DE PICO ----
+        if y is not None:
+            df = self.add_peak_distance_features(df, y)
+
         # ---- PASSO 2: FEATURES CÍCLICAS ----
         df = self.add_cyclical_features(df)
-        
+
         # ---- PASSO 3: AUTOCORRELAÇÃO ----
         if y is not None:
             acf_features = self.add_autocorrelation_features(y, lags=[1, 2, 3, 5, 7, 14])
             for fname, fvalue in acf_features.items():
                 # ACF é escalar, replicar para todas as linhas
                 df[fname] = fvalue
-        
+
         # ---- PASSO 4: INTERAÇÕES ----
         df = self.add_interaction_features(df)
-        
+
         # ---- PASSO 5: POLINÔMIOS ----
         df = self.add_polynomial_features(df, degree=2)
-        
+
         self._log("Pipeline completo executado com sucesso!")
-        
+
         return df, outlier_mask
 
 
