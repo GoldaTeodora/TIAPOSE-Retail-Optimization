@@ -63,15 +63,28 @@ def calculate_daily_profit(num_customers, J, X, PR, is_weekend, store_name):
     # Unidades por cliente (fórmula do projeto)
     # PR=0 -> unidades = F*10 / ln(2) ≈ F*14.4
     # PR=0.3 -> unidades = F*10 / ln(1.7) ≈ F*21.4
-    denominator = np.log(2.0 - PR) if (2.0 - PR) > 0 else 1e-6
-    units_per_customer = np.round(store['F_x'] * 10 / denominator)
+    denominator = max(np.log(2.0 - PR), 1e-6)
+
+    # Unidades por tipo de trabalhador
+    units_x = store['F_x'] * 10 / denominator
+    units_j = store['F_j'] * 10 / denominator
     
-    # Lucro por cliente: units * (1 - PR) * 1.07
-    profit_per_customer = np.round(units_per_customer * (1 - PR) * 1.07)
+    # Lucro por cliente
+    profit_x = units_x * (1 - PR) * 1.07
+    profit_j = units_j * (1 - PR) * 1.07
     
-    # Lucro total do dia (só do que foi atendido)
-    total_profit_revenue = (x_customers + j_customers) * profit_per_customer
-    
+    # Receita total (separada)
+    total_profit_revenue = (
+        x_customers * profit_x +
+        j_customers * profit_j
+    )
+
+    # Unidades totais
+    total_units = (
+        x_customers * units_x +
+        j_customers * units_j
+    )
+
     # Custo de RH
     j_cost = J * hr['J']
     x_cost = X * hr['X']
@@ -80,10 +93,8 @@ def calculate_daily_profit(num_customers, J, X, PR, is_weekend, store_name):
     # Lucro líquido do dia
     daily_profit = total_profit_revenue - total_hr_cost
     
-    # Unidades totais
-    total_units = (x_customers + j_customers) * int(units_per_customer)
-    
-    return float(daily_profit), int(total_units), float(total_hr_cost)
+      
+    return float(daily_profit), float(total_units), float(total_hr_cost)
 
 
 def calculate_weekly_profit(daily_plans, store_name):
@@ -115,7 +126,7 @@ def calculate_weekly_profit(daily_plans, store_name):
         daily_profits.append(daily_profit)
         total_units += day_units
         total_hr += day_hr
-    
+
     # Lucro semanal = sum(lucros diários) - W_s (custo fixo semanal)
     weekly_profit = sum(daily_profits) - store['W_s']
     
@@ -155,23 +166,75 @@ def evaluate_solution(J_array, X_array, PR_array, customers_forecast, store_name
     
     if objective == 'O1':
         # Maximizar lucro sem restrições
-        return weekly['weekly_profit']
+        return {'best_value': weekly['weekly_profit']}
     
     elif objective == 'O2':
         # Maximizar lucro com constraint de unidades <= 10000
         if weekly['total_units'] <= 10000:
-            return weekly['weekly_profit']
+            return {'best_value': weekly['weekly_profit']}
         else:
             # Penalidade forte para violação
-            return -1e10
-    
+            return {'best_value': -1e10}
+
     elif objective == 'O3':
         # Multi-objetivo: lucro + minimizar HR
         # Normalizar: lucro é tipicamente 1000-5000, HR é 3000-10000
         # Peso: 70% lucro, 30% HR minimizado
         normalized_profit = weekly['weekly_profit'] / 5000  # Normalizar a ~1
         normalized_hr = weekly['total_hr'] / 10000  # Normalizar a ~1
-        return 0.7 * normalized_profit - 0.3 * normalized_hr
+        return {'best_value': 0.7 * normalized_profit - 0.3 * normalized_hr}
     
+    else:
+        raise ValueError(f"Objetivo desconhecido: {objective}")
+
+def evaluate_solution_global(J_dict, X_dict, PR_dict, forecasts, objective):
+
+    total_profit = 0
+    total_units = 0
+    total_hr = 0
+
+    for store in forecasts:
+
+        J = J_dict[store]
+        X = X_dict[store]
+        PR = PR_dict[store]
+        forecast = forecasts[store]
+
+        daily_plans = []
+
+        for i in range(7):
+            daily_plans.append({
+                'num_customers': forecast[i],
+                'J': int(np.clip(J[i], 0, 20)),
+                'X': int(np.clip(X[i], 0, 20)),
+                'PR': np.clip(PR[i], 0.0, 0.3),
+                'is_weekend': i >= 5
+            })
+
+        weekly = calculate_weekly_profit(daily_plans, store)
+
+        total_profit += weekly['weekly_profit']
+        total_units += weekly['total_units']
+        total_hr += weekly['total_hr']
+
+    # =============================
+    # OBJETIVOS
+    # =============================
+
+    if objective == 'O1':
+        return {'best_value': total_profit}
+
+    elif objective == 'O2':
+        if total_units <= 10000:
+            return {'best_value': total_profit}
+        else:
+            return {'best_value': -1e10}
+
+    elif objective == 'O3':
+        normalized_profit = total_profit / 20000
+        normalized_hr = total_hr / 40000
+        return {'best_value': 0.7 * normalized_profit - 0.3 * normalized_hr}
+        
+
     else:
         raise ValueError(f"Objetivo desconhecido: {objective}")
