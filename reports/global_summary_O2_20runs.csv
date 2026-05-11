@@ -1,7 +1,0 @@
-algorithm,mean_profit,std_profit
-hill_climbing,-9499999972.198977,
-pso,-9499999997.904049,
-de,-9500000003.225473,
-genetic,-9500000017.154804,
-random,-9500000017.154804,
-simulated_annealing,-10000000000.0,

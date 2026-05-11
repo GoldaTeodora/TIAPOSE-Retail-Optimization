@@ -52,7 +52,7 @@ def _evaluate_store_fast(store_name, train_ratio=0.85):
         """Força previsão zero em dias de loja fechada conhecidos por calendário."""
         y_adj = np.asarray(y_pred, dtype=float).copy()
         # Natal
-        closed_mask = pd.to_datetime(test_dates).month == 12
+        closed_mask = pd.to_datetime(test_dates).dt.month == 12
         closed_mask &= pd.to_datetime(test_dates).day == 25
         # Páscoa
         from forecasting.advanced_features import AdvancedFeatureEngineer
