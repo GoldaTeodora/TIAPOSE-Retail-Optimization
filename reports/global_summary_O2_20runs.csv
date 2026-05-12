@@ -1,0 +1,7 @@
+algorithm,mean_profit,std_profit
+pso,1501.2095000000013,
+de,1337.6396750000006,
+genetic,1083.1389750000008,
+simulated_annealing,680.2780000000006,
+hill_climbing,616.3142500000006,
+random,-3499999662.3952246,

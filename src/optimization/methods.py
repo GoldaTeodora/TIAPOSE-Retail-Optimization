@@ -6,9 +6,10 @@ from unittest import result
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from core.profit_calculator import calculate_daily_profit
 
 import numpy as np
-from core.profit_calculator import evaluate_solution
+from core.profit_calculator import calculate_daily_profit, evaluate_solution
 
 
 class OptimizationMethods:
@@ -22,13 +23,115 @@ class OptimizationMethods:
         self.method = method
         self.PR_values = np.arange(0, 0.31, 0.05)
         
-        # Espaço de solução
-        self.J_bounds = (0, 20)
-        self.X_bounds = (0, 20)
+        # Espaço de solução baseado na previsão
+
+        max_clients = int(np.max(customers_forecast))
+
+        # capacidade mínima = 6 clientes por funcionário
+        max_hr = max(
+            int(np.ceil(max_clients / 6)),
+            int(np.ceil(max_clients / 7))
+)
+
+        self.J_bounds = (0, max_hr)
+        self.X_bounds = (0, max_hr)
         self.PR_bounds = (0.0, 0.3)
+
+        # estimativa de máximos para normalização O3
+
+        max_daily_profit = 0
+        max_daily_hr = 0
+
+        for d in range(7):
+
+            customers = customers_forecast[d]
+
+            # máximo RH possível
+            max_x = int(np.ceil(customers / 7))
+
+            is_weekend = d >= 5
+
+            # promoção máxima
+            pr = 0.0
+
+            # cálculo otimista
+            
+
+            daily_profit, _, daily_hr = calculate_daily_profit(
+                num_customers=customers,
+                J=0,
+                X=max_x,
+                PR=pr,
+                is_weekend=is_weekend,
+                store_name=store_name
+            )
+
+            max_daily_profit += daily_profit
+            max_daily_hr += daily_hr
+
+        self.max_profit = max(max_daily_profit, 1)
+        self.max_hr = max(max_daily_hr, 1)
         
         # Solução = [J0, J1, ..., J6, X0, X1, ..., X6, PR0, PR1, ..., PR6] (21 dims)
         self.dim = 21
+
+    def _generate_feasible_solution(self):
+
+        J = []
+        X = []
+
+        for customers in self.customers_forecast:
+
+            max_x = int(np.ceil(customers / 7))
+
+            x = self.rng.integers(0, max_x + 1)
+
+            remaining = max(0, customers - x * 7)
+
+            max_j = int(np.ceil(remaining / 6))
+
+            j = self.rng.integers(0, max_j + 1)
+
+            J.append(j)
+            X.append(x)
+
+        PR = self.rng.choice(
+            self.PR_values,
+            size=7
+       )
+
+        solution = np.array(
+            J + X + list(PR),
+            dtype=float
+        )
+
+        return solution
+
+
+    def _fix_solution(self, solution):
+
+        solution = solution.copy()
+
+        # J inteiros
+        solution[0:7] = np.round(solution[0:7]).astype(int)
+
+        # X inteiros
+        solution[7:14] = np.round(solution[7:14]).astype(int)
+
+        # PR discreto
+        pr = solution[14:21]
+
+        pr = np.array([
+            self.PR_values[
+                np.abs(self.PR_values - p).argmin()
+            ]
+            for p in pr
+        ])
+
+        solution[14:21] = pr
+
+        return solution 
+    
     
     def _evaluate(self, solution):
         """Avalia uma solução completa.
@@ -39,20 +142,35 @@ class OptimizationMethods:
         Returns:
             Float: valor (quanto maior, melhor)
         """
+        solution = self._fix_solution(solution)
+
         J = np.clip(solution[0:7], self.J_bounds[0], self.J_bounds[1])
         X = np.clip(solution[7:14], self.X_bounds[0], self.X_bounds[1])
-        PR = np.clip(solution[14:21], self.PR_bounds[0], self.PR_bounds[1])
-
-        PR = self.PR_values[np.abs(self.PR_values[:, None] - PR).argmin(axis=0)]
-        
-        result = evaluate_solution(
-            J, X, PR,
-            self.customers_forecast,
-            self.store_name,
-            self.objective
+        PR = np.clip(
+            solution[14:21],
+            self.PR_bounds[0],
+            self.PR_bounds[1]
         )
 
-        # 🔥 corrigir tipo (dict → float)
+        PR = np.array([
+            self.PR_values[
+                np.abs(self.PR_values - p).argmin()
+            ]
+            for p in PR
+        ])
+        
+        result = evaluate_solution(
+            J,
+    X,
+    PR,
+    self.customers_forecast,
+    self.store_name,
+    self.objective,
+    self.max_profit,
+    self.max_hr
+)
+
+        # corrigir tipo (dict → float)
         if isinstance(result, dict):
             value = result.get('best_value', result.get('value', -1e10))
         else:
@@ -62,9 +180,12 @@ class OptimizationMethods:
 
         # segurança
         if not np.isfinite(value):
-            return -1e10
+            return value
 
         return value
+    
+
+   
 
     def hill_climbing(self, max_iter=300):
         """Hill Climbing com vizinhança de 6 pontos.
@@ -73,10 +194,8 @@ class OptimizationMethods:
             Dict com 'solution', 'value', 'history'
         """
         # Inicializar solução aleatória
-        solution = self.rng.uniform(
-            [self.J_bounds[0]]*7 + [self.X_bounds[0]]*7 + [self.PR_bounds[0]]*7,
-            [self.J_bounds[1]]*7 + [self.X_bounds[1]]*7 + [self.PR_bounds[1]]*7
-        )
+        solution = self._generate_feasible_solution( )         
+        
         
         best_value = self._evaluate(solution)
         history = [best_value]
@@ -122,7 +241,7 @@ class OptimizationMethods:
             
             
         return {
-            'solution': solution,
+            'solution': self._fix_solution(solution),
             'value': best_value,
             'history': history
         }
@@ -133,10 +252,9 @@ class OptimizationMethods:
         Returns:
             Dict com 'solution', 'value', 'history'
         """
-        solution = self.rng.uniform(
-            [self.J_bounds[0]]*7 + [self.X_bounds[0]]*7 + [self.PR_bounds[0]]*7,
-            [self.J_bounds[1]]*7 + [self.X_bounds[1]]*7 + [self.PR_bounds[1]]*7
-        )
+        solution = self._generate_feasible_solution()
+            
+        
         
         best_solution = solution.copy()
         best_value = self._evaluate(solution)
@@ -171,7 +289,7 @@ class OptimizationMethods:
             history.append(best_value)
         
         return {
-            'solution': best_solution,
+            'solution': self._fix_solution(best_solution),
             'value': best_value,
             'history': history
         }
@@ -182,12 +300,10 @@ class OptimizationMethods:
         Returns:
             Dict com 'solution', 'value', 'history'
         """
-        # Inicializar população
-        population = self.rng.uniform(
-            [self.J_bounds[0]]*7 + [self.X_bounds[0]]*7 + [self.PR_bounds[0]]*7,
-            [self.J_bounds[1]]*7 + [self.X_bounds[1]]*7 + [self.PR_bounds[1]]*7,
-            size=(population_size, self.dim)
-        )
+        population = np.array([
+            self._generate_feasible_solution()
+            for _ in range(population_size)
+        ])
         
         history = []
         
@@ -239,7 +355,7 @@ class OptimizationMethods:
         best_solution = population[best_idx]
         
         return {
-            'solution': best_solution,
+            'solution': self._fix_solution(best_solution),
             'value': self._evaluate(best_solution),
             'history': history
         }
@@ -251,10 +367,9 @@ class OptimizationMethods:
         history = []
 
         for _ in range(n_iter):
-            solution = self.rng.uniform(
-                [self.J_bounds[0]]*7 + [self.X_bounds[0]]*7 + [self.PR_bounds[0]]*7,
-                [self.J_bounds[1]]*7 + [self.X_bounds[1]]*7 + [self.PR_bounds[1]]*7
-            )
+            solution = self._generate_feasible_solution()
+                
+            
 
             value = self._evaluate(solution)
 
@@ -265,18 +380,17 @@ class OptimizationMethods:
             history.append(best_value)
 
         return {
-            'solution': best_solution,
+            'solution': self._fix_solution(best_solution),
             'value': best_value,
             'history': history
         }
     
     def differential_evolution(self, pop_size=30, generations=50):
 
-        population = self.rng.uniform(
-            [self.J_bounds[0]]*7 + [self.X_bounds[0]]*7 + [self.PR_bounds[0]]*7,
-            [self.J_bounds[1]]*7 + [self.X_bounds[1]]*7 + [self.PR_bounds[1]]*7,
-            size=(pop_size, self.dim)
-        )
+        population = np.array([
+            self._generate_feasible_solution()
+            for _ in range(pop_size)
+        ])
 
         history = []
 
@@ -312,7 +426,7 @@ class OptimizationMethods:
         best_idx = np.argmax([self._evaluate(ind) for ind in population])
 
         return {
-            'solution': population[best_idx],
+            'solution': self._fix_solution(population[best_idx]),
             'value': self._evaluate(population[best_idx]),
             'history': history
        }
@@ -323,12 +437,10 @@ class OptimizationMethods:
         Returns:
             Dict com 'solution', 'value', 'history'
         """
-        # Inicializar partículas
-        particles = self.rng.uniform(
-            [self.J_bounds[0]]*7 + [self.X_bounds[0]]*7 + [self.PR_bounds[0]]*7,
-            [self.J_bounds[1]]*7 + [self.X_bounds[1]]*7 + [self.PR_bounds[1]]*7,
-            size=(n_particles, self.dim)
-        )
+        particles = np.array([
+            self._generate_feasible_solution()
+            for _ in range(n_particles)
+        ])
         
         velocities = self.rng.uniform(-1, 1, size=(n_particles, self.dim))
         
@@ -383,7 +495,7 @@ class OptimizationMethods:
             history.append(global_best_value)
         
         return {
-            'solution': global_best,
+            'solution': self._fix_solution(global_best),
             'value': global_best_value,
             'history': history
         }

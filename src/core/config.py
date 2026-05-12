@@ -61,7 +61,14 @@ ROLLING_WINDOW = {
 
 # Optimization
 OPTIMIZATION = {
-    'methods': ['hill_climbing', 'simulated_annealing', 'genetic_algorithm', 'particle_swarm'],
+    'methods': [
+    'random',
+    'hill_climbing',
+    'simulated_annealing',
+    'genetic',
+    'pso',
+    'de'
+],
     'objectives': ['O1', 'O2', 'O3'],
     'J_bounds': (0, 20),
     'X_bounds': (0, 20),

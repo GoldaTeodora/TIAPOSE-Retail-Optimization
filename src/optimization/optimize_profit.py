@@ -3,48 +3,54 @@ Pipeline para prever clientes, otimizar lucro e salvar plano ótimo.
 """
 import sys
 from pathlib import Path
-from unicodedata import name
 
-from src.optimization import methods
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from core.profit_calculator import calculate_daily_profit
 
 import pandas as pd
 import numpy as np
-from core.config import STORES, get_data_path, XGBOOST_FEATURES
 from forecasting.ml_model import XGBoostForecaster
+from core.config import STORES, XGBOOST_FEATURES
 from optimization.methods import OptimizationMethods
 from optimization.methods_global import OptimizationMethodsGlobal
 
-import pandas as pd
-import numpy as np
 
 def compute_daily_metrics(store_name, forecast, J, X, PR):
-    F = 1.0  # ⚠️ ajustar se tiver valor real
-    C_J = 10
-    C_X = 20
 
     results = []
 
     for d in range(7):
+
         clientes = int(round(forecast[d]))
 
         j = int(J[d])
         x = int(X[d])
-        pr = PR[d]
+        pr = float(PR[d])
 
-        A = min(7*x + 6*j, clientes)
-        U = round((F * 10) / np.log(2 - pr))
-        P = round(U * (1 - pr) * 1.07)
-        R = A * P - j * C_J - x * C_X
+        is_weekend = d >= 5
+
+        daily_profit, total_units, total_hr = calculate_daily_profit(
+            num_customers=clientes,
+            J=j,
+            X=x,
+            PR=pr,
+            is_weekend=is_weekend,
+            store_name=store_name
+        )
+
+        attended = min(7 * x + 6 * j, clientes)
 
         results.append({
-            'Dia': d+1,
+            'Dia': d + 1,
             'Clientes': clientes,
-            'Atendidos': A,
+            'Atendidos': attended,
             'Juniores': j,
             'Experts': x,
-            'Promocao': pr,
-            'Lucro': R
+            'Promocao': round(pr, 2),
+            'Unidades': total_units,
+            'Custo_RH': total_hr,
+            'Lucro': daily_profit
         })
 
     return pd.DataFrame(results)
@@ -67,26 +73,13 @@ def generate_forecasts(stores, forecast_horizon=7):
 
         forecast = xgb.predict(X_test.iloc[:forecast_horizon], n_periods=forecast_horizon)
 
-        forecasts[store] = np.array(forecast).flatten()[:7]
+        forecasts[store] = np.maximum(
+            np.round(np.array(forecast).flatten()[:7]),
+            0
+        ).astype(int)
 
     return forecasts
 
-
-def run_multiple(optimizer_base, pr_values, n_runs=20, method=None):
-    values = []
-
-    for seed in range(n_runs):
-        optimizer = optimizer_base(seed)
-        optimizer.PR_values = pr_values
-
-        if method:
-            result = optimizer.optimize(method)
-        else:
-            result = optimizer.optimize()
-
-        values.append(result['best_value'])
-
-    return np.mean(values), np.std(values)
 
 
 def optimize_store_profit(store_name, forecast, objective='O1', n_runs=20, use_real=False):
@@ -100,20 +93,25 @@ def optimize_store_profit(store_name, forecast, objective='O1', n_runs=20, use_r
     
 
     if use_real:
-        print("📊 Using REAL data (baseline)")
+        print(" Using REAL data (baseline)")
 
         # ainda precisas de y aqui
         enriched_path = Path(f'data/enriched/{store_name}_features.csv')
         df = pd.read_csv(enriched_path)
         y = df['Num_Customers'] if 'Num_Customers' in df.columns else df['Num_Customers_Clean']
 
-        forecast = y.iloc[-7:].values
+        forecast = np.maximum(
+            np.round(y.iloc[-7:].values),
+            0
+        ).astype(int)
 
     else:
         print("🔮 Using FORECAST data")
-        # 🔥 usa forecast já calculado
-        forecast = forecast
-        forecasts[store] = np.round(forecast).astype(int).flatten()[:7]
+        #  usa forecast já calculado
+        forecast = np.maximum(
+            np.round(forecast).astype(int).flatten()[:7],
+            0
+        )
 
     # =============================
     # 2. PR SCENARIOS
@@ -157,7 +155,7 @@ def optimize_store_profit(store_name, forecast, objective='O1', n_runs=20, use_r
 
                 values.append(result['best_value'])
 
-                # ⚠️ garantir que history existe
+                #  garantir que history existe
                 if 'history' in result:
                     histories.append(result['history'])
 
@@ -183,11 +181,22 @@ def optimize_store_profit(store_name, forecast, objective='O1', n_runs=20, use_r
             # =============================
             # CONVERGÊNCIA (se existir)
             # =============================
-            if len(histories) > 0:
-                min_len = min(len(h) for h in histories)
-                histories = [h[:min_len] for h in histories]
+            valid_histories = [
+                h for h in histories
+                if len(h) > 0
+            ]
 
-                mean_history = np.mean(histories, axis=0)
+            if len(valid_histories) > 0:
+
+                min_len = min(len(h) for h in valid_histories)
+
+                valid_histories = [
+                    h[:min_len]
+                    for h in valid_histories
+                ]
+
+                mean_history = np.mean(valid_histories, axis=0)
+
                 all_histories.append((method, mean_history))
 
         # =============================
@@ -287,22 +296,48 @@ def optimize_store_profit(store_name, forecast, objective='O1', n_runs=20, use_r
     out_path = Path(f'reports/plan_{store_name}_{objective}_{n_runs}runs.csv')
     plan_df.to_csv(out_path, index=False)
 
-    print(f"\n🏆 Melhor método local: {best_result.get('method', 'N/A')} ({best_result['best_value']:.2f})")
+    print(f"\n Melhor método local: {best_result.get('method', 'N/A')} ({best_result['best_value']:.2f})")
     print(f"[OK] Plano ótimo salvo em: {out_path}")
 
     return plan_df, best_result
 
 
 
-def optimize_global_profit(stores, forecasts, forecast_horizon=7, objective='O2', n_runs=20):
+def optimize_global_profit(
+    stores,
+    forecasts,
+    objective='O2',
+    n_runs=20
+):
 
-   
-    
+      
     # =============================
     # 2. MÉTODOS
     # =============================
-    methods = ['random', 'hill_climbing', 'simulated_annealing', 'genetic', 'pso', 'de']
+    if objective == 'O3_NS':
 
+        methods = ['nsga2']
+
+    elif objective == 'O3_WEIGHTED':
+
+        methods = [
+            'genetic',
+            'pso',
+            'de'
+        ]
+
+    else:
+
+        methods = [
+            'random',
+            'hill_climbing',
+            'simulated_annealing',
+            'genetic',
+            'pso',
+            'de'
+        ]
+
+    
     comparison_results = []
     scenario_results = []
 
@@ -355,7 +390,7 @@ def optimize_global_profit(stores, forecasts, forecast_horizon=7, objective='O2'
     # =============================
     best_method = max(scenario_results, key=lambda x: x['mean'])['method']
 
-    print(f"\n🏆 Melhor método global: {best_method}")
+    print(f"\n Melhor método global: {best_method}")
 
     # =============================
     # 5. MELHOR EXECUÇÃO FINAL
@@ -419,67 +454,106 @@ def optimize_global_profit(stores, forecasts, forecast_horizon=7, objective='O2'
         start = i * 7
         end = (i + 1) * 7
 
-        plan_df = pd.DataFrame({
-            'Dia': np.arange(1, 8),
-            'Previsao_Clientes': forecasts[store],
-            'Juniores': np.round(J[start:end]).astype(int),
-            'Experts': np.round(X[start:end]).astype(int),
-            'Promocao': PR[start:end]
-        })
+        plan_df = compute_daily_metrics(
+            store,
+            forecasts[store],
+            np.round(J[start:end]).astype(int),
+            np.round(X[start:end]).astype(int),
+            PR[start:end]
+        )
 
         plan_df.to_csv(
             f'reports/global_plan_{store}_{objective}_{n_runs}runs.csv',
             index=False
         )
 
-    print(f"\n🏆 Melhor solução global ({objective}): {best_result['best_value']:.2f}")
+    print(f"\n Melhor solução global ({objective}): {best_result['best_value']:.2f}")
+
+    if objective == 'O3_NS' and 'pareto_solutions' in best_result:
+
+        pareto_df = pd.DataFrame([
+            {
+                'profit': s['profit'],
+                'hr': s['hr']
+            }
+            for s in best_result['pareto_solutions']
+        ])
+
+        pareto_df.to_csv(
+            f'reports/pareto_front_{objective}_{n_runs}runs.csv',
+            index=False
+        )
+
+        print("\nPareto front guardado.")
+
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(7,5))
+
+        plt.scatter(
+            pareto_df['hr'],
+            pareto_df['profit']
+        )
+
+        plt.xlabel("HR Cost")
+        plt.ylabel("Profit")
+        plt.title("Pareto Front")
+
+        plt.grid()
+
+        plt.savefig(
+            f'reports/pareto_front_{objective}_{n_runs}runs.png'
+        )
+
+        plt.close()
 
     return best_result
 
 
 if __name__ == '__main__':
 
+    np.random.seed(42)
+
     forecasts = generate_forecasts(STORES)
 
     n_runs = 20
 
     print(f"\n============================")
-    print(f"🚀 RUNS = {n_runs}")
+    print(f" RUNS = {n_runs}")
     print(f"============================")
 
-        # 🔵 BASELINE (dados reais)
+        #  BASELINE (dados reais)
     for store in STORES:
-            for objective in ['O1', 'O2', 'O3']:
+            for objective in ['O1']:
                 print(f"\n--- BASELINE (REAL): {store} | {objective} ---")
 
                 optimize_store_profit(
                     store,
                     forecast=forecasts[store],
-                    objective=objective,
+                   objective=objective,
                     n_runs=n_runs,
-                    use_real=True
+                   use_real=True
                 )
 
-        # 🔵 LOCAL
+        #  LOCAL
     for store in STORES:
-            for objective in ['O1', 'O2', 'O3']:
+            for objective in ['O1']:
                 print(f"\n--- LOCAL: {store} | {objective} ---")  
                            
                 optimize_store_profit(
                         store,
                         forecast=forecasts[store],
                         objective=objective,
-                        n_runs=n_runs   # 👈 AQUI ESTÁ A CHAVE
+                        n_runs=n_runs   #  AQUI ESTÁ A CHAVE
                                             )
  
-            # 🟣 GLOBAL
-    for objective in ['O1', 'O2', 'O3']:
+            #  GLOBAL
+    for objective in ['O2', 'O3_WEIGHTED', 'O3_NS']:
             print(f"\n--- GLOBAL {objective} ---")
 
             optimize_global_profit(
-                    STORES,
-                    forecasts,
-                    forecast_horizon=7,
-                    objective=objective,
-                    n_runs=n_runs 
-                )
+                STORES,
+                forecasts,
+                objective=objective,
+                n_runs=n_runs
+            )
