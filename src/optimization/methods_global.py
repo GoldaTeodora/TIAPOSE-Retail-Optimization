@@ -1,3 +1,4 @@
+from tracemalloc import start
 from unittest import result
 
 import numpy as np
@@ -84,17 +85,18 @@ class OptimizationMethodsGlobal:
 
     def _generate_feasible_solution(self):
 
-        J = []
-        X = []
-        PR = []
+        solution = []
 
         for store in self.stores:
 
             forecast = self.forecasts[store]
 
+            store_J = []
+            store_X = []
+            store_PR = []
+
             for customers in forecast:
 
-                # máximo experts possível
                 max_x = int(np.ceil(customers / 7))
 
                 x = self.rng.integers(
@@ -102,10 +104,8 @@ class OptimizationMethodsGlobal:
                     max(1, max_x // 3) + 1
                 )
 
-                # clientes restantes
                 remaining = max(0, customers - x * 7)
 
-                # máximo juniores necessário
                 max_j = int(np.ceil(remaining / 6))
 
                 j = self.rng.integers(
@@ -115,17 +115,13 @@ class OptimizationMethodsGlobal:
 
                 pr = self.rng.choice([0.0, 0.05, 0.1])
 
-                J.append(j)
-                X.append(x)
-                PR.append(pr)
+                store_J.append(j)
+                store_X.append(x)
+                store_PR.append(pr)
 
-        solution = np.array(
-            J + X + PR,
-            dtype=float
-        )
+            solution.extend(store_J + store_X + store_PR)
 
-        return solution
-
+        return np.array(solution, dtype=float)
 
 
 
@@ -133,22 +129,28 @@ class OptimizationMethodsGlobal:
 
         solution = solution.copy()
 
-        n = self.n_stores * 7
+        for s in range(self.n_stores):
 
-        # J inteiros
-        solution[0:n] = np.round(solution[0:n]).astype(int)
+            start = s * 21
 
-        # X inteiros
-        solution[n:2*n] = np.round(solution[n:2*n]).astype(int)
+            # J
+            solution[start:start+7] = np.round(
+                solution[start:start+7]
+            ).astype(int)
 
-        # PR discreto
-        pr = solution[2*n:3*n]
+            # X
+            solution[start+7:start+14] = np.round(
+                solution[start+7:start+14]
+            ).astype(int)
 
-        pr = self.PR_values[
-            np.abs(self.PR_values[:, None] - pr).argmin(axis=0)
-        ]
+            # PR
+            pr = solution[start+14:start+21]
 
-        solution[2*n:3*n] = pr
+            pr = self.PR_values[
+                np.abs(self.PR_values[:, None] - pr).argmin(axis=0)
+            ]
+
+            solution[start+14:start+21] = pr
 
         return solution
     
@@ -221,9 +223,23 @@ class OptimizationMethodsGlobal:
 
         n = self.n_stores * 7
 
-        J = np.clip(solution[0:n], self.J_bounds[0], self.J_bounds[1])
-        X = np.clip(solution[n:2*n], self.X_bounds[0], self.X_bounds[1])
-        PR = solution[2*n:3*n]
+        J = []
+        X = []
+        PR = []
+
+        for s in range(self.n_stores):
+
+            start = s * 21
+
+            J.extend(solution[start:start+7])
+
+            X.extend(solution[start+7:start+14])
+
+            PR.extend(solution[start+14:start+21])
+
+        J = np.array(J)
+        X = np.array(X)
+        PR = np.array(PR)
 
         # discretizar PR
         PR = self.PR_values[

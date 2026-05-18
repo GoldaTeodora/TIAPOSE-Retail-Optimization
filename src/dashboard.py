@@ -448,6 +448,8 @@ with tab2:
                 f"{lucro_total:.2f}"
             )
 
+            st.write(df_filtered.columns)
+
             resumo_cenario = pd.DataFrame([{
                 "Objetivo": selected_objective,
                 "Juniores": df_filtered["Juniores"].mean(),
