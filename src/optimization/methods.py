@@ -49,7 +49,7 @@ class OptimizationMethods:
             # máximo RH possível
             max_x = int(np.ceil(customers / 7))
 
-            is_weekend = d >= 5
+            is_weekend = (d == 0) or (d == 6)
 
             # promoção máxima
             pr = 0.0

@@ -2,7 +2,8 @@ from tracemalloc import start
 from unittest import result
 
 import numpy as np
-from core.profit_calculator import calculate_daily_profit, evaluate_solution_global
+from core.profit_calculator import calculate_daily_profit, calculate_weekly_profit, evaluate_solution_global
+from core.config import OPTIMIZATION
 
 class OptimizationMethodsGlobal:
 
@@ -11,6 +12,7 @@ class OptimizationMethodsGlobal:
         self.stores = stores
         self.forecasts = forecasts
         self.objective = objective
+        self.units_constraint = OPTIMIZATION.get('units_constraint_O2', 10000)
 
         self.n_stores = len(stores)
         self.days = 7
@@ -30,8 +32,8 @@ class OptimizationMethodsGlobal:
         # pior caso: todos clientes atendidos por juniores
         max_hr = int(np.ceil(max_clients / 6))
 
-        self.J_bounds = (0, max_hr)
-        self.X_bounds = (0, max_hr)
+        self.J_bounds = (0, int(np.ceil(max_clients / 6)))
+        self.X_bounds = (0, int(np.ceil(max_clients / 7)))
         self.PR_bounds = (0.0, 0.3)
         
 
@@ -54,7 +56,7 @@ class OptimizationMethodsGlobal:
 
                 max_x = int(np.ceil(customers / 7))
 
-                is_weekend = d >= 5
+                is_weekend = (d == 0) or (d == 6)
 
                 daily_profit, _, daily_hr = calculate_daily_profit(
                     num_customers=customers,
@@ -85,136 +87,190 @@ class OptimizationMethodsGlobal:
 
     def _generate_feasible_solution(self):
 
-        solution = []
+        all_J = []
+        all_X = []
+        all_PR = []
 
         for store in self.stores:
 
             forecast = self.forecasts[store]
 
-            store_J = []
-            store_X = []
-            store_PR = []
-
             for customers in forecast:
 
                 max_x = int(np.ceil(customers / 7))
 
-                x = self.rng.integers(
-                    0,
-                    max(1, max_x // 3) + 1
-                )
+                if max_x <= 0:
+                    x = 0
+                else:
+                    x = self.rng.integers(
+                        0,
+                        max_x + 1
+                    )
 
-                remaining = max(0, customers - x * 7)
+                remaining = max(
+                    0,
+                    customers - x * 7
+                )
 
                 max_j = int(np.ceil(remaining / 6))
 
-                j = self.rng.integers(
-                    0,
-                    max(1, max_j // 3) + 1
-                )
+                if max_j <= 0:
+                    j = 0
+                else:
+                    j = self.rng.integers(
+                        0,
+                        max_j + 1
+                    )
 
-                pr = self.rng.choice([0.0, 0.05, 0.1])
+                pr = self.rng.choice(self.PR_values)
 
-                store_J.append(j)
-                store_X.append(x)
-                store_PR.append(pr)
+                all_J.append(j)
+                all_X.append(x)
+                all_PR.append(pr)
 
-            solution.extend(store_J + store_X + store_PR)
+        solution = np.array(
+            all_J + all_X + all_PR,
+            dtype=float
+        )
 
-        return np.array(solution, dtype=float)
-
+        return solution
 
 
     def _fix_solution(self, solution):
 
         solution = solution.copy()
 
-        for s in range(self.n_stores):
+        n = self.n_stores * 7
 
-            start = s * 21
+        # =========================
+        # J
+        # =========================
+        solution[0:n] = np.round(
+            solution[0:n]
+        ).astype(int)
 
-            # J
-            solution[start:start+7] = np.round(
-                solution[start:start+7]
-            ).astype(int)
+        # =========================
+        # X
+        # =========================
+        solution[n:2*n] = np.round(
+            solution[n:2*n]
+        ).astype(int)
 
-            # X
-            solution[start+7:start+14] = np.round(
-                solution[start+7:start+14]
-            ).astype(int)
+        # =========================
+        # PR
+        # =========================
+        pr = solution[2*n:3*n]
 
-            # PR
-            pr = solution[start+14:start+21]
+        pr = self.PR_values[
+            np.abs(
+                self.PR_values[:, None] - pr
+            ).argmin(axis=0)
+        ]
 
-            pr = self.PR_values[
-                np.abs(self.PR_values[:, None] - pr).argmin(axis=0)
-            ]
-
-            solution[start+14:start+21] = pr
+        solution[2*n:3*n] = pr
 
         return solution
     
+    
+    def _compute_total_units(self, J, X, PR):
+        """Calcula o total de unidades para um vetor J, X, PR já dividido."""
+        total_units = 0
+        idx = 0
+        for store in self.stores:
+            for d in range(7):
+                _, units, _ = calculate_daily_profit(
+                    num_customers=int(self.forecasts[store][d]),
+                    J=int(round(J[idx + d])),
+                    X=int(round(X[idx + d])),
+                    PR=float(PR[idx + d]),
+                    is_weekend=(d == 0) or (d == 6),
+                    store_name=store
+                )
+                total_units += units
+            idx += 7
+        return total_units
+
     def _repair_solution(self, solution):
+        """
+        Repara solução inviável garantindo que o constraint global de unidades
+        seja respeitado (máx. 10000 unidades para os objetivos O2/O3).
 
-        solution = solution.copy()
+        Estratégia:
+        1. Clipping e fix inicial
+        2. Redução proporcional rápida de trabalhadores se necessário
+        3. Ajuste iterativo fino até satisfazer o constraint
+        """
+        solution = np.clip(solution.copy(), self.low, self.high)
+        solution = self._fix_solution(solution)
 
-        max_attempts = 20
+        if self.objective not in ['O2', 'O3', 'O3_WEIGHTED', 'O3_NS']:
+            return solution
 
-        for _ in range(max_attempts):
+        limit = int(self.units_constraint)
+        J, X, PR = self._split_solution(solution)
+        total_units = self._compute_total_units(J, X, PR)
 
-            J, X, PR = self._split_solution(solution)
+        if total_units <= limit:
+            return np.concatenate([J, X, PR])
 
-            total_units = 0
+        # --- Passo 1: redução proporcional rápida ---
+        # Calcular quantos clientes podemos atender no total
+        total_customers = sum(
+            int(self.forecasts[store][d])
+            for store in self.stores for d in range(7)
+        )
+        # Estimar unidades por cliente (média ponderada)
+        if total_customers > 0:
+            avg_units_per_customer = total_units / total_customers
+        else:
+            avg_units_per_customer = 17.0
 
+        target_customers = limit / max(avg_units_per_customer, 1.0)
+        scale = min(target_customers / max(total_customers, 1), 1.0)
+
+        idx = 0
+        for store in self.stores:
+            for d in range(7):
+                target = int(self.forecasts[store][d] * scale)
+                max_x = int(np.ceil(target / 7))
+                X[idx + d] = min(X[idx + d], float(max_x))
+                remaining = max(0, target - max_x * 7)
+                max_j = int(np.ceil(remaining / 6))
+                J[idx + d] = min(J[idx + d], float(max_j))
+            idx += 7
+
+        # --- Passo 2: ajuste iterativo fino ---
+        for _ in range(500):
+            total_units = self._compute_total_units(J, X, PR)
+            if total_units <= limit:
+                break
+
+            # Coletar métricas por dia
+            daily_metrics = []
             idx = 0
-
             for store in self.stores:
-
-                forecast = self.forecasts[store]
-
                 for d in range(7):
-
                     _, units, _ = calculate_daily_profit(
-                        num_customers=forecast[d],
-                        J=int(J[idx + d]),
-                        X=int(X[idx + d]),
-                        PR=PR[idx + d],
-                        is_weekend=(d >= 5),
+                        num_customers=int(self.forecasts[store][d]),
+                        J=int(round(J[idx + d])),
+                        X=int(round(X[idx + d])),
+                        PR=float(PR[idx + d]),
+                        is_weekend=(d == 0) or (d == 6),
                         store_name=store
                     )
-
-                    total_units += units
-
+                    daily_metrics.append((units, idx + d))
                 idx += 7
 
-            # solução válida
-            if total_units <= 10000:
-                return self._fix_solution(solution)
+            daily_metrics.sort(reverse=True, key=lambda x: x[0])
 
-            n = self.n_stores * 7
+            # Reduzir os 3 dias com mais unidades
+            for units_val, day_idx in daily_metrics[:3]:
+                if X[day_idx] > 0:
+                    X[day_idx] = max(0.0, X[day_idx] - 1)
+                elif J[day_idx] > 0:
+                    J[day_idx] = max(0.0, J[day_idx] - 1)
 
-            # reduzir PR
-            pr_idx = self.rng.integers(2*n, 3*n)
-            solution[pr_idx] = max(
-                0.0,
-                solution[pr_idx] - 0.05
-            )
-
-            # reduzir experts
-            x_idx = self.rng.integers(n, 2*n)
-            solution[x_idx] = max(
-                0,
-                solution[x_idx] - 1
-            )
-
-            # reduzir juniores
-            j_idx = self.rng.integers(0, n)
-            solution[j_idx] = max(
-                0,
-                solution[j_idx] - 1
-            )
-
-        return self._fix_solution(solution)
+        return np.concatenate([J, X, PR])
 
     def _split_solution(self, solution):
 
@@ -223,19 +279,12 @@ class OptimizationMethodsGlobal:
 
         n = self.n_stores * 7
 
-        J = []
-        X = []
-        PR = []
+        # estrutura correta:
+        # [J global][X global][PR global]
 
-        for s in range(self.n_stores):
-
-            start = s * 21
-
-            J.extend(solution[start:start+7])
-
-            X.extend(solution[start+7:start+14])
-
-            PR.extend(solution[start+14:start+21])
+        J = solution[0:n]
+        X = solution[n:2*n]
+        PR = solution[2*n:3*n]
 
         J = np.array(J)
         X = np.array(X)
@@ -246,10 +295,7 @@ class OptimizationMethodsGlobal:
             np.abs(self.PR_values[:, None] - PR).argmin(axis=0)
         ]
 
-        # =========================================
-        # CORREÇÃO DOS LIMITES POR DIA
-        # =========================================
-
+        # limitar por forecast real
         idx = 0
 
         for store in self.stores:
@@ -258,13 +304,28 @@ class OptimizationMethodsGlobal:
 
             for d in range(7):
 
-                max_j = int(np.ceil(forecast[d] / 6))
                 max_x = int(np.ceil(forecast[d] / 7))
 
-                J[idx + d] = np.clip(J[idx + d], 0, max_j)
-                X[idx + d] = np.clip(X[idx + d], 0, max_x)
+                X[idx + d] = np.clip(
+                    X[idx + d],
+                    0,
+                    max_x
+                )
 
-            idx += 7
+                remaining = max(
+                    0,
+                    forecast[d] - X[idx + d] * 7
+                )
+
+                max_j = int(np.ceil(remaining / 6))
+
+                J[idx + d] = np.clip(
+                    J[idx + d],
+                    0,
+                    max_j
+                )   
+
+            idx += self.days
 
         return J, X, PR
     
@@ -489,7 +550,7 @@ class OptimizationMethodsGlobal:
             history.append(best_value)
 
         return {
-            'solution': self._fix_solution(best_solution),
+            'solution': best_solution.copy(),
             'best_value': best_value,
             'history': history
         }
@@ -514,7 +575,7 @@ class OptimizationMethodsGlobal:
 
         for _ in range(max_iter):
 
-            neighbor = solution + self.rng.normal(0, 0.2, self.dim)
+            neighbor = solution + self.rng.normal(0, 1.0, self.dim)
             neighbor = np.clip(neighbor, self.low, self.high)
             neighbor = self._repair_solution(neighbor)          
 
@@ -528,7 +589,7 @@ class OptimizationMethodsGlobal:
             history.append(best_value)
 
         return {
-            'solution': self._fix_solution(best_solution),
+            'solution': best_solution.copy(),
             'best_value': best_value,
             'history': history
         }
@@ -569,7 +630,7 @@ class OptimizationMethodsGlobal:
 
                # mutação
                if self.rng.random() < 0.2:
-                   mutation = self.rng.normal(0, 0.2, self.dim)
+                   mutation = self.rng.normal(0, 1.0, self.dim)
                    child += mutation
 
                child = np.clip(child, self.low, self.high)
@@ -583,13 +644,13 @@ class OptimizationMethodsGlobal:
         best_solution = population[best_idx]
 
         return {
-           'solution': self._fix_solution(best_solution),
+           'solution': best_solution.copy(),
            'best_value': self._evaluate(best_solution),
            'history': history
         }
     
 
-    def nsga2(self, population_size=40, generations=50):
+    def nsga2(self, population_size=60, generations=100):
 
         population = np.array([
             self._repair_solution(
@@ -663,7 +724,7 @@ class OptimizationMethodsGlobal:
 
                     child += self.rng.normal(
                         0,
-                        0.2,
+                        1.0,
                         self.dim
                     )
 
@@ -715,7 +776,7 @@ class OptimizationMethodsGlobal:
 
         pareto_solutions = [
             {
-                'solution': self._fix_solution(population[idx]),
+                'solution': self._fix_solution(population[idx].copy()),
                 'profit': objectives[idx][0],
                 'hr': objectives[idx][1]
             }
@@ -723,7 +784,7 @@ class OptimizationMethodsGlobal:
         ]
 
         return {
-            'solution': self._fix_solution(population[best_idx]),
+            'solution': population[best_idx].copy(),
             'pareto_front': pareto_front,
             'pareto_solutions': pareto_solutions,
             'objectives': objectives,
@@ -783,16 +844,24 @@ class OptimizationMethodsGlobal:
                     personal_best_values[i] = value
 
                     if value > global_best_value:
-                        global_best = particles[i].copy()
+                        global_best = self._repair_solution(
+                            self._fix_solution(
+                                particles[i].copy()
+                        )
+            )
                         global_best_value = value
 
             history.append(global_best_value)
 
         return {
-            'solution': self._fix_solution(global_best),
+            'solution': self._repair_solution(
+                self._fix_solution(
+                    global_best.copy()
+                )
+            ),
             'best_value': global_best_value,
             'history': history
-        }
+        }       
     
 
     def simulated_annealing(self, max_iter=300, temp_init=100):
@@ -811,7 +880,7 @@ class OptimizationMethodsGlobal:
 
             temp = temp_init * (0.95 ** i)
 
-            neighbor = solution + self.rng.normal(0, 0.2, self.dim)
+            neighbor = solution + self.rng.normal(0, 1.0, self.dim)
             neighbor = np.clip(neighbor, self.low, self.high)
             neighbor = self._repair_solution(neighbor)
                         
@@ -831,7 +900,7 @@ class OptimizationMethodsGlobal:
             history.append(best_value)
 
         return {
-            'solution': self._fix_solution(best_solution),
+            'solution': best_solution.copy(),
             'best_value': best_value,
             'history': history
         }
@@ -878,7 +947,7 @@ class OptimizationMethodsGlobal:
         best_idx = np.argmax([self._evaluate(ind) for ind in population])
 
         return {
-            'solution': self._fix_solution(population[best_idx]),
+            'solution': population[best_idx].copy(),
             'best_value': self._evaluate(population[best_idx]),
             'history': history
         }

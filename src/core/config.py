@@ -42,8 +42,8 @@ STORE_PARAMS = {
 
 # Custos diários de RH
 HR_COSTS = {
-    'weekday': {'J': 60, 'X': 80},   # Junior e Expert em semana
-    'weekend': {'J': 70, 'X': 95}    # Junior e Expert no fim de semana
+    'weekday': {'J': 60, 'X': 80},
+    'weekend': {'J': 70, 'X': 95}
 }
 
 # Capacidade de atendimento

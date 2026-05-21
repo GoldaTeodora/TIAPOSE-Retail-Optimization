@@ -28,7 +28,7 @@ def compute_daily_metrics(store_name, forecast, J, X, PR):
         x = int(X[d])
         pr = float(PR[d])
 
-        is_weekend = d >= 5
+        is_weekend = (d == 0) or (d == 6)
 
         daily_profit, total_units, total_hr = calculate_daily_profit(
             num_customers=clientes,
@@ -106,7 +106,7 @@ def optimize_store_profit(store_name, forecast, objective='O1', n_runs=20, use_r
         ).astype(int)
 
     else:
-        print("🔮 Using FORECAST data")
+        print("Using FORECAST data")
         #  usa forecast já calculado
         forecast = np.maximum(
             np.round(forecast).astype(int).flatten()[:7],
@@ -340,6 +340,7 @@ def optimize_global_profit(
     
     comparison_results = []
     scenario_results = []
+    all_histories = []
 
     print("\n=== GLOBAL OPTIMIZATION ===")
     print("\n--- COMPARAÇÃO DE ALGORITMOS ---")
@@ -350,6 +351,7 @@ def optimize_global_profit(
     for method in methods:
 
         values = []
+        histories = []
 
         for seed in range(n_runs):
             optimizer = OptimizationMethodsGlobal(
@@ -361,6 +363,9 @@ def optimize_global_profit(
 
             result = optimizer.optimize(method)
             values.append(result['best_value'])
+
+            if 'history' in result:
+                histories.append(result['history'])
 
         values = np.array(values)
 
@@ -384,6 +389,65 @@ def optimize_global_profit(
             'method': method,
             'mean': mean
         })
+
+        
+
+        valid_histories = [
+            h for h in histories
+            if len(h) > 0
+        ]
+
+        
+
+        if len(valid_histories) > 0:
+
+            min_len = min(len(h) for h in valid_histories)
+
+            valid_histories = [
+                h[:min_len]
+                for h in valid_histories
+            ]
+
+            mean_history = np.mean(
+                valid_histories,
+                axis=0
+            )
+
+            all_histories.append(
+                (method, mean_history)
+            )
+
+
+    # =============================
+    # GRÁFICO DE CONVERGÊNCIA GLOBAL
+    # =============================
+    if len(all_histories) > 0:
+
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(8,5))
+
+        for method_name, history in all_histories:
+
+            plt.plot(
+                history,
+                label=method_name
+            )
+
+        plt.xlabel("Iterações")
+        plt.ylabel("Melhor valor")
+        plt.title(f"Convergência Global ({objective})")
+
+        plt.legend()
+        plt.grid()
+
+        Path("reports").mkdir(exist_ok=True)
+
+        plt.savefig(
+            f"reports/global_convergence_{objective}.png"
+        )
+
+        plt.close()
 
     # =============================
     # 4. ESCOLHER MELHOR MÉTODO
@@ -448,18 +512,30 @@ def optimize_global_profit(
     # =============================
     # 7. GERAR PLANOS POR LOJA
     # =============================
-    J, X, PR = best_optimizer._split_solution(best_result['solution'])
+    solution = best_optimizer._repair_solution(
+        best_optimizer._fix_solution(
+            best_result['solution']
+    )
+).copy()    
+
+    J_all, X_all, PR_all = best_optimizer._split_solution(solution)
 
     for i, store in enumerate(stores):
+
         start = i * 7
-        end = (i + 1) * 7
+
+        J = J_all[start:start+7].astype(int)
+
+        X = X_all[start:start+7].astype(int)
+
+        PR = PR_all[start:start+7]
 
         plan_df = compute_daily_metrics(
             store,
             forecasts[store],
-            np.round(J[start:end]).astype(int),
-            np.round(X[start:end]).astype(int),
-            PR[start:end]
+            J,
+            X,
+            PR
         )
 
         plan_df.to_csv(
@@ -514,7 +590,45 @@ if __name__ == '__main__':
 
     np.random.seed(42)
 
-    forecasts = generate_forecasts(STORES)
+    forecast_df = pd.read_csv(
+        'reports/future_forecast_7_days.csv'
+    )
+
+    print("\n===== FORECASTS USADOS NA OTIMIZAÇÃO =====")
+
+    for store in STORES:
+
+        store_data = forecast_df[
+            forecast_df['Loja'].str.lower() == store.lower()
+    ]
+
+        forecast_values = (
+            store_data['Clientes_Previstos']
+            .values[:7]
+            .astype(int)
+        )
+
+        print(store)
+        print(forecast_values)
+
+    forecast_df['Loja'] = (
+        forecast_df['Loja']
+        .str.lower()
+)
+
+    forecasts = {}
+
+    for store in STORES:
+
+        store_data = forecast_df[
+            forecast_df['Loja'] == store
+        ]
+
+        forecasts[store] = (
+            store_data['Clientes_Previstos']
+            .values[:7]
+            .astype(int)
+        )
 
     n_runs = 20
 
@@ -522,38 +636,11 @@ if __name__ == '__main__':
     print(f" RUNS = {n_runs}")
     print(f"============================")
 
-        #  BASELINE (dados reais)
-    for store in STORES:
-            for objective in ['O1']:
-                print(f"\n--- BASELINE (REAL): {store} | {objective} ---")
-
-                optimize_store_profit(
-                    store,
-                    forecast=forecasts[store],
-                   objective=objective,
-                    n_runs=n_runs,
-                   use_real=True
-                )
-
-        #  LOCAL
-    for store in STORES:
-            for objective in ['O1']:
-                print(f"\n--- LOCAL: {store} | {objective} ---")  
-                           
-                optimize_store_profit(
-                        store,
-                        forecast=forecasts[store],
-                        objective=objective,
-                        n_runs=n_runs   #  AQUI ESTÁ A CHAVE
-                                            )
- 
-            #  GLOBAL
-    for objective in ['O2', 'O3_WEIGHTED', 'O3_NS']:
-            print(f"\n--- GLOBAL {objective} ---")
-
-            optimize_global_profit(
-                STORES,
-                forecasts,
-                objective=objective,
-                n_runs=n_runs
-            )
+    # GLOBAL O2 only
+    print(f"\n--- GLOBAL O2 ---")
+    optimize_global_profit(
+        STORES,
+        forecasts,
+        objective='O2',
+        n_runs=n_runs
+    )

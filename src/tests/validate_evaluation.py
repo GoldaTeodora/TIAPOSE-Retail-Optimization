@@ -28,7 +28,7 @@ def compute_daily_metrics(store_name, forecast, J, X, PR):
         x = int(X[d])
         pr = float(PR[d])
 
-        is_weekend = d >= 5
+        is_weekend = (d == 0) or (d == 6)
 
         daily_profit, total_units, total_hr = calculate_daily_profit(
             num_customers=clientes,

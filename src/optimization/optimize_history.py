@@ -71,7 +71,7 @@ def optimize_history_for_store(store_name, objective='O1'):
                 'J': J[i],
                 'X': Xs[i],
                 'PR': PR[i],
-                'is_weekend': i >= 5
+                'is_weekend': (i == 0) or (i == 6)
             })
         profit_info = calculate_weekly_profit(daily_plans, store_name)
 
