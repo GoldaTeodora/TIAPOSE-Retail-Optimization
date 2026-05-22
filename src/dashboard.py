@@ -1197,25 +1197,40 @@ with tab4:
         ]
         error_vals = df_sorted_asc["std_profit"].fillna(0).tolist()
 
+        algo_palette = ["#2ecc71", "#27ae8f", "#2980b9", "#1a6b9a", "#7f5aa2", "#c0392b"]
+        n_algos = len(df_sorted_asc)
+        ranked_colors = [
+            "#2ecc71" if row["algorithm"] == best_row["algorithm"]
+            else algo_palette[min(i, len(algo_palette) - 1)]
+            for i, (_, row) in enumerate(df_sorted_asc.iloc[::-1].reset_index(drop=True).iterrows())
+        ]
+        ranked_colors = list(reversed(ranked_colors))
+
         fig_compare = go.Figure()
         fig_compare.add_trace(go.Bar(
             y=algo_labels,
             x=df_sorted_asc["mean_profit"],
             orientation="h",
-            marker_color=bar_colors,
-            error_x=dict(type="data", array=error_vals, visible=True),
-            text=df_sorted_asc["mean_profit"].apply(lambda v: f"${v:,.0f}"),
-            textposition="outside",
-            textfont=dict(size=13, color="white"),
+            marker=dict(color=ranked_colors, line=dict(width=0)),
+            error_x=dict(
+                type="data", array=error_vals, visible=True,
+                color="rgba(255,255,255,0.5)", thickness=1.5, width=5
+            ),
+            text=df_sorted_asc["mean_profit"].apply(lambda v: f"  ${v:,.0f}  "),
+            textposition="inside",
+            insidetextanchor="end",
+            textfont=dict(size=14, color="white", family="Arial Black"),
             cliponaxis=False,
         ))
         fig_compare.update_layout(
             xaxis_title="Lucro Médio ($)",
-            xaxis=dict(range=[0, df_sorted_asc["mean_profit"].max() * 1.18]),
-            template="plotly_white",
+            xaxis=dict(range=[0, df_sorted_asc["mean_profit"].max() * 1.05], showgrid=True, gridcolor="rgba(255,255,255,0.1)"),
+            yaxis=dict(tickfont=dict(size=13, color="white")),
+            template="plotly_dark",
             showlegend=False,
-            height=300,
-            margin=dict(r=120, l=10),
+            height=340,
+            bargap=0.25,
+            margin=dict(r=20, l=10, t=10, b=40),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color="white"),
