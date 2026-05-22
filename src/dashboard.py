@@ -759,8 +759,90 @@ with tab2:
 
             styled = tabela_show.style.apply(apply_row_style, axis=1)
 
-            st.dataframe(styled, use_container_width=True, hide_index=True)
-            st.caption("Verde = dia em operacao | Vermelho = dia sem operacao | Cinzento = total semanal")
+            event = st.dataframe(
+                styled,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+            )
+            st.caption("Verde = dia em operacao | Vermelho = dia sem operacao | Cinzento = total semanal  |  Clica numa linha para ver detalhes do dia.")
+
+            selected_rows = event.selection.rows if hasattr(event, "selection") else []
+            if selected_rows and selected_rows[0] < len(tabela_final) - 1:
+                idx = selected_rows[0]
+                row = tabela_final.iloc[idx]
+                aberto = row["Aberto_bool"]
+
+                st.markdown(f"#### Detalhes — {row['Dia']}")
+
+                if not aberto:
+                    st.warning("Loja fechada neste dia — sem operacao.")
+                else:
+                    cap_pct = (row["Atendidos"] / row["Clientes"] * 100) if row["Clientes"] > 0 else 0
+                    lucro_cli = row["Lucro"] / row["Atendidos"] if row["Atendidos"] > 0 else 0
+                    unid_cli = row["Unidades"] / row["Atendidos"] if row["Atendidos"] > 0 else 0
+                    vendas_brutas = row["Lucro"] + row["Custo RH"]
+                    total_workers = int(row["Juniores"]) + int(row["Experts"])
+                    is_weekend = row["Dia"] in ("Dia 1 (Domingo)", "Dia 7 (Sabado)", "Dia 7 (Sábado)")
+
+                    mc1, mc2, mc3, mc4 = st.columns(4)
+                    mc1.metric("Capacidade utilizada", f"{cap_pct:.0f}%",
+                               f"{int(row['Atendidos'])} de {int(row['Clientes'])} clientes")
+                    mc2.metric("Trabalhadores", str(total_workers),
+                               f"{int(row['Juniores'])} Jun + {int(row['Experts'])} Exp")
+                    mc3.metric("Lucro por cliente", f"${lucro_cli:.1f}")
+                    mc4.metric("Unidades por cliente", f"{unid_cli:.0f}")
+
+                    gc1, gc2 = st.columns([2, 1])
+
+                    with gc1:
+                        fig_break = go.Figure(go.Bar(
+                            x=["Vendas Brutas", "Custo RH", "Lucro Liquido"],
+                            y=[vendas_brutas, row["Custo RH"], row["Lucro"]],
+                            marker_color=["#2196F3", "#ef5350", "#43a047"],
+                            text=[f"${v:,.0f}" for v in [vendas_brutas, row["Custo RH"], row["Lucro"]]],
+                            textposition="outside",
+                        ))
+                        fig_break.update_layout(
+                            title="Breakdown financeiro do dia",
+                            height=280,
+                            margin=dict(t=40, b=10, l=10, r=10),
+                            yaxis_title="$",
+                            showlegend=False,
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            font=dict(color="white"),
+                        )
+                        st.plotly_chart(fig_break, use_container_width=True)
+
+                    with gc2:
+                        st.markdown("**Composicao de RH**")
+                        fig_rh = go.Figure(go.Pie(
+                            labels=["Juniores", "Experts"],
+                            values=[int(row["Juniores"]), int(row["Experts"])],
+                            hole=0.4,
+                            marker_colors=["#FFA726", "#42A5F5"],
+                        ))
+                        fig_rh.update_layout(
+                            height=280,
+                            margin=dict(t=10, b=10, l=10, r=10),
+                            showlegend=True,
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            font=dict(color="white"),
+                        )
+                        st.plotly_chart(fig_rh, use_container_width=True)
+
+                    prom_val = row.get("Promocao", "0.0%")
+                    tipo_dia = "fim de semana" if is_weekend else "dia util"
+                    st.info(
+                        f"**{row['Dia']}** ({tipo_dia}) — "
+                        f"Promocao: {prom_val} | "
+                        f"Margem bruta: ${vendas_brutas:,.0f} | "
+                        f"Custo RH: ${row['Custo RH']:,.0f} | "
+                        f"**Lucro liquido: ${row['Lucro']:,.0f}**"
+                    )
 
             st.divider()
 
@@ -1104,24 +1186,25 @@ with tab4:
             f"Lucro médio de **${best_row['mean_profit']:,.2f}** (±${std_val:.2f}){best_extra}"
         )
 
-        st.subheader("Lucro Médio por Algoritmo (20 execuções)")
+        n_runs = _active_runs()
+        st.subheader(f"Lucro Médio por Algoritmo ({n_runs} execuções)")
 
-        df_sorted = df_comp.sort_values("mean_profit", ascending=True).copy()
-        algo_labels = df_sorted["algorithm"].str.upper().str.replace("_", " ")
+        df_sorted_asc = df_comp.sort_values("mean_profit", ascending=True).copy()
+        algo_labels = df_sorted_asc["algorithm"].str.upper().str.replace("_", " ")
         bar_colors = [
             "#2ecc71" if row["algorithm"] == best_row["algorithm"] else "#3498db"
-            for _, row in df_sorted.iterrows()
+            for _, row in df_sorted_asc.iterrows()
         ]
-        error_vals = df_sorted["std_profit"].fillna(0).tolist()
+        error_vals = df_sorted_asc["std_profit"].fillna(0).tolist()
 
         fig_compare = go.Figure()
         fig_compare.add_trace(go.Bar(
             y=algo_labels,
-            x=df_sorted["mean_profit"],
+            x=df_sorted_asc["mean_profit"],
             orientation="h",
             marker_color=bar_colors,
             error_x=dict(type="data", array=error_vals, visible=True),
-            text=df_sorted["mean_profit"].apply(lambda v: f"${v:,.0f}"),
+            text=df_sorted_asc["mean_profit"].apply(lambda v: f"${v:,.0f}"),
             textposition="inside",
             insidetextanchor="end"
         ))
@@ -1133,10 +1216,11 @@ with tab4:
             margin=dict(r=20)
         )
         st.plotly_chart(fig_compare, use_container_width=True)
-        st.caption("Verde = melhor algoritmo | Barras de erro = desvio padrão entre as 20 execuções")
+        st.caption(f"Verde = melhor algoritmo | Barras de erro = desvio padrão entre as {n_runs} execuções")
 
         st.subheader("Tabela Comparativa")
 
+        df_sorted = df_comp.sort_values("mean_profit", ascending=False).copy()
         tbl = df_sorted.reset_index(drop=True).copy()
         tbl.insert(0, "Pos.", [f"#{i+1}" for i in range(len(tbl))])
         tbl["Algoritmo"] = tbl["algorithm"].str.upper().str.replace("_", " ")
