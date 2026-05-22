@@ -22,6 +22,7 @@ STORE_WS = {
     "baltimore": 700, "lancaster": 730,
     "philadelphia": 760, "richmond": 800
 }
+WS_TOTAL = sum(STORE_WS.values())  # 2990 — custo fixo global (4 lojas)
 
 
 # =========================
@@ -67,27 +68,63 @@ def load_forecast_validation() -> pd.DataFrame | None:
     return df
 
 
+def _best_runs_path(*candidates: Path) -> Path:
+    """Returns the first path that exists, preferring higher run counts."""
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[-1]  # fallback (may not exist)
+
+
+def _active_runs() -> int:
+    """Returns highest n_runs for which summary files exist (100 > 50 > 20)."""
+    for n in (100, 50, 20):
+        if (REPORT_DIR / f"summary_baltimore_O1_{n}runs.csv").exists():
+            return n
+    return 20
+
+
 @st.cache_data
 def load_global_summary(store: str, objective: str) -> pd.DataFrame | None:
     if objective == "O1":
-        path = REPORT_DIR / f"summary_{store}_O1_20runs.csv"
+        path = _best_runs_path(
+            REPORT_DIR / f"summary_{store}_O1_100runs.csv",
+            REPORT_DIR / f"summary_{store}_O1_50runs.csv",
+            REPORT_DIR / f"summary_{store}_O1_20runs.csv",
+        )
     else:
-        path = REPORT_DIR / f"global_summary_{objective}_20runs.csv"
+        path = _best_runs_path(
+            REPORT_DIR / f"global_summary_{objective}_100runs.csv",
+            REPORT_DIR / f"global_summary_{objective}_50runs.csv",
+            REPORT_DIR / f"global_summary_{objective}_20runs.csv",
+        )
     return load_csv(path)
 
 
 @st.cache_data
 def load_global_comparison(store: str, objective: str) -> pd.DataFrame | None:
     if objective == "O1":
-        path = REPORT_DIR / f"summary_{store}_O1_20runs.csv"
+        path = _best_runs_path(
+            REPORT_DIR / f"summary_{store}_O1_100runs.csv",
+            REPORT_DIR / f"summary_{store}_O1_50runs.csv",
+            REPORT_DIR / f"summary_{store}_O1_20runs.csv",
+        )
     else:
-        path = REPORT_DIR / f"global_comparison_{objective}_20runs.csv"
+        path = _best_runs_path(
+            REPORT_DIR / f"global_comparison_{objective}_100runs.csv",
+            REPORT_DIR / f"global_comparison_{objective}_50runs.csv",
+            REPORT_DIR / f"global_comparison_{objective}_20runs.csv",
+        )
     return load_csv(path)
 
 
 @st.cache_data
 def load_global_plan(store: str, objective: str) -> pd.DataFrame | None:
-    path = REPORT_DIR / f"global_plan_{store}_{objective}_20runs.csv"
+    path = _best_runs_path(
+        REPORT_DIR / f"global_plan_{store}_{objective}_100runs.csv",
+        REPORT_DIR / f"global_plan_{store}_{objective}_50runs.csv",
+        REPORT_DIR / f"global_plan_{store}_{objective}_20runs.csv",
+    )
     df = load_csv(path)
     if df is not None and "Data" in df.columns:
         df["Data"] = pd.to_datetime(df["Data"])
@@ -96,7 +133,11 @@ def load_global_plan(store: str, objective: str) -> pd.DataFrame | None:
 
 @st.cache_data
 def load_local_plan(store: str) -> pd.DataFrame | None:
-    path = REPORT_DIR / f"plan_{store}_O1_20runs.csv"
+    path = _best_runs_path(
+        REPORT_DIR / f"plan_{store}_O1_100runs.csv",
+        REPORT_DIR / f"plan_{store}_O1_50runs.csv",
+        REPORT_DIR / f"plan_{store}_O1_20runs.csv",
+    )
     df = load_csv(path)
     if df is not None and "Data" in df.columns:
         df["Data"] = pd.to_datetime(df["Data"])
@@ -105,7 +146,11 @@ def load_local_plan(store: str) -> pd.DataFrame | None:
 
 @st.cache_data
 def load_pareto_front() -> pd.DataFrame | None:
-    path = REPORT_DIR / "pareto_front_O3_NS_20runs.csv"
+    path = _best_runs_path(
+        REPORT_DIR / "pareto_front_O3_NS_100runs.csv",
+        REPORT_DIR / "pareto_front_O3_NS_50runs.csv",
+        REPORT_DIR / "pareto_front_O3_NS_20runs.csv",
+    )
     return load_csv(path)
 
 
@@ -134,24 +179,6 @@ def load_store_plan(store: str, objective: str) -> pd.DataFrame | None:
 # =========================
 st.title("Sistema Inteligente de Apoio à Decisão")
 
-st.sidebar.header("Filtros Globais")
-selected_store = st.sidebar.selectbox(
-    "Loja",
-    STORES,
-    format_func=format_store
-)
-
-selected_compare_store = st.sidebar.selectbox(
-    "Comparar com outra loja",
-    STORES,
-    index=1 if selected_store != STORES[1] else 0,
-    format_func=format_store
-)
-
-selected_objective = st.sidebar.selectbox(
-    "Objetivo de Otimização",
-    SCENARIOS
-)
 
 
 # =========================
@@ -160,19 +187,12 @@ selected_objective = st.sidebar.selectbox(
 df_future = load_future_forecast()
 df_forecast = load_forecast_validation()
 df_sales_forecast = load_future_sales_forecast()
-
-if selected_objective == "O1":
-    df_plan = load_local_plan(selected_store)
-else:
-    df_plan = load_global_plan(selected_store, selected_objective)
-
-df_summary = load_global_summary(selected_store, selected_objective)
-df_comparison = load_global_comparison(selected_store, selected_objective)
 df_pareto = load_pareto_front()
 
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Previsão e Forecast",
+tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "Exploração dos Dados",
+    "Previsão e Análise Preditiva",
     "Gestão e Decisão",
     "Análise de Lojas",
     "Análise Técnica",
@@ -181,9 +201,109 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 
 
 # =========================
+# TAB 0 — EXPLORAÇÃO DOS DADOS
+# =========================
+with tab0:
+    selected_store = st.selectbox("Loja", STORES, format_func=format_store, key="store_tab0")
+
+    st.header("Exploração dos Dados")
+
+    st.markdown("""
+    Esta secção apresenta a análise exploratória realizada sobre os dados
+    históricos das lojas, permitindo identificar padrões temporais,
+    sazonalidade, correlações e comportamento da procura.
+    """)
+
+    eda_path = Path(f"data/processed/{selected_store}_clean.csv")
+
+    if not eda_path.exists():
+        st.warning("Ficheiro processado da loja não encontrado.")
+
+    else:
+
+        df_eda = pd.read_csv(eda_path)
+        df_eda["Date"] = pd.to_datetime(df_eda["Date"])
+
+        st.subheader("Evolução Temporal dos Clientes")
+
+        fig_time = px.line(
+            df_eda,
+            x="Date",
+            y="Num_Customers",
+            title=f"Evolução Diária de Clientes — {format_store(selected_store)}",
+            markers=True
+        )
+        fig_time.update_layout(
+            xaxis_title="Data",
+            yaxis_title="Número de Clientes",
+            template="plotly_white"
+        )
+        st.plotly_chart(fig_time, width="stretch")
+
+        st.subheader("Sazonalidade por Dia da Semana")
+
+        day_labels = {
+            1: "Seg", 2: "Ter", 3: "Qua", 4: "Qui",
+            5: "Sex", 6: "Sáb", 7: "Dom"
+        }
+        df_eda["Dia_Label"] = df_eda["Day_of_Week"].map(day_labels)
+
+        fig_week = px.box(
+            df_eda,
+            x="Dia_Label",
+            y="Num_Customers",
+            title=f"Distribuição de Clientes por Dia da Semana — {format_store(selected_store)}"
+        )
+        fig_week.update_layout(
+            xaxis_title="Dia da Semana",
+            yaxis_title="Número de Clientes",
+            template="plotly_white"
+        )
+        st.plotly_chart(fig_week, width="stretch")
+
+        st.subheader("Matriz de Correlação")
+
+        corr_cols = ["Num_Customers", "Sales", "Pct_On_Sale", "Is_Weekend", "Is_Black_Friday"]
+        corr = df_eda[corr_cols].corr()
+
+        fig_corr = px.imshow(
+            corr,
+            text_auto=".2f",
+            aspect="auto",
+            title=f"Matriz de Correlação — {format_store(selected_store)}"
+        )
+        fig_corr.update_layout(template="plotly_white")
+        st.plotly_chart(fig_corr, width="stretch")
+
+        st.subheader("Relação entre Clientes e Vendas")
+
+        fig_scatter = px.scatter(
+            df_eda,
+            x="Num_Customers",
+            y="Sales",
+            trendline="ols",
+            title=f"Clientes vs Vendas — {format_store(selected_store)}"
+        )
+        fig_scatter.update_layout(
+            xaxis_title="Número de Clientes",
+            yaxis_title="Sales",
+            template="plotly_white"
+        )
+        st.plotly_chart(fig_scatter, width="stretch")
+
+        st.info(
+            "A análise exploratória permitiu identificar padrões sazonais, "
+            "diferenças entre lojas e relações entre variáveis relevantes "
+            "para a construção dos modelos de forecasting."
+        )
+
+
+# =========================
 # TAB 1 — PREVISÃO
 # =========================
 with tab1:
+    selected_store = st.selectbox("Loja", STORES, format_func=format_store, key="store_tab1")
+
     st.header("Previsão de Clientes")
     st.info(
         "Esta área apresenta a previsão futura dos próximos 7 dias e a validação do modelo com valores reais."
@@ -216,22 +336,37 @@ with tab1:
                 f"({peak_row['Dia_Semana']}) com **{int(peak_row['Clientes_Previstos'])} clientes**."
             )
 
-            if peak_clients > avg_clients * 1.15:
-                st.warning(
-                    "Procura acima da média semanal prevista. Recomenda-se atenção ao planeamento de equipa."
+            historical_store = None
+            if df_forecast is not None:
+                historical_store = (
+                    df_forecast[df_forecast["Loja"] == selected_store]
+                    .sort_values("Dia")
+                    .tail(14)
+                    .copy()
                 )
-            else:
-                st.info("A procura prevista mantém-se relativamente estável ao longo da semana.")
 
             fig_future = go.Figure()
-            fig_future.add_trace(go.Scatter(
-                x=df_future_store["Data"],
-                y=df_future_store["Clientes_Previstos"],
-                mode="lines+markers",
-                name="Clientes Previstos"
-            ))
+            if historical_store is not None and not historical_store.empty:
+                fig_future.add_trace(
+                    go.Scatter(
+                        x=historical_store["Dia"],
+                        y=historical_store["Clientes Reais"],
+                        mode="lines+markers",
+                        name="Histórico Real",
+                        line=dict(dash="solid")
+                    )
+                )
+            fig_future.add_trace(
+                go.Scatter(
+                    x=df_future_store["Data"],
+                    y=df_future_store["Clientes_Previstos"],
+                    mode="lines+markers",
+                    name="Forecast Futuro",
+                    line=dict(dash="dash")
+                )
+            )
             fig_future.update_layout(
-                title=f"Previsão de Clientes — Próximos 7 Dias ({format_store(selected_store)})",
+                title=f"Histórico Recente e Forecast — {format_store(selected_store)}",
                 xaxis_title="Data",
                 yaxis_title="Número de Clientes",
                 template="plotly_white"
@@ -411,11 +546,63 @@ with tab1:
             st.subheader("Tabela de Validação")
             st.dataframe(df_store, use_container_width=True)
 
+    st.divider()
+
+    # ========== EXPORTAR DADOS DE PREVISÃO ==========
+    st.subheader("Exportar Dados de Previsão")
+    st.caption("Descarrega os ficheiros de previsão para usar noutras ferramentas.")
+
+    col_dl1, col_dl2, col_dl3 = st.columns(3)
+
+    with col_dl1:
+        if df_future is not None:
+            df_dl_future = df_future[df_future["Loja"] == selected_store].copy()
+            st.download_button(
+                label="Previsão de Clientes (CSV)",
+                data=df_dl_future.to_csv(index=False).encode("utf-8"),
+                file_name=f"previsao_clientes_{selected_store}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("Ficheiro de previsão não encontrado.")
+
+    with col_dl2:
+        if df_sales_forecast is not None:
+            df_dl_sales = df_sales_forecast[df_sales_forecast["Loja"] == selected_store].copy()
+            st.download_button(
+                label="Previsão de Vendas (CSV)",
+                data=df_dl_sales.to_csv(index=False).encode("utf-8"),
+                file_name=f"previsao_vendas_{selected_store}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("Ficheiro de vendas não encontrado.")
+
+    with col_dl3:
+        if df_forecast is not None:
+            df_dl_val = df_forecast[df_forecast["Loja"] == selected_store].copy()
+            st.download_button(
+                label="Validação do Modelo (CSV)",
+                data=df_dl_val.to_csv(index=False).encode("utf-8"),
+                file_name=f"validacao_modelo_{selected_store}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("Ficheiro de validação não encontrado.")
+
 
 # =========================
 # TAB 2 — OTIMIZAÇÃO
 # =========================
 with tab2:
+    selected_store = st.selectbox("Loja", STORES, format_func=format_store, key="store_tab2")
+    selected_objective = st.selectbox("Objetivo de Otimização", SCENARIOS, key="obj_tab2")
+
+    if selected_objective == "O1":
+        df_plan = load_local_plan(selected_store)
+    else:
+        df_plan = load_global_plan(selected_store, selected_objective)
+
     st.header(f"Plano Semanal Recomendado — {format_store(selected_store)}")
     st.caption(f"Objetivo de otimização: **{selected_objective}** | {scenario_description(selected_objective)}")
 
@@ -577,93 +764,100 @@ with tab2:
 
             st.divider()
 
-            st.subheader("Planeamento de Recursos Humanos")
+            col_rh, col_cl = st.columns(2)
 
-            fig_workers = go.Figure()
-            fig_workers.add_trace(go.Bar(
-                x=df_store["Label"],
-                y=df_store["Juniores"],
-                name="Juniores",
-                marker_color="skyblue"
-            ))
-            fig_workers.add_trace(go.Bar(
-                x=df_store["Label"],
-                y=df_store["Experts"],
-                name="Experts",
-                marker_color="royalblue"
-            ))
-            fig_workers.update_layout(
-                barmode="stack",
-                title="Equipa por Dia da Semana",
-                xaxis_title="Dia",
-                yaxis_title="Numero de Trabalhadores",
-                template="plotly_white"
-            )
-            st.plotly_chart(fig_workers, use_container_width=True)
+            with col_rh:
+                st.subheader("Equipa por Dia")
+                fig_workers = go.Figure()
+                fig_workers.add_trace(go.Scatter(
+                    x=df_store["Label"], y=df_store["Experts"],
+                    name="Experts", mode="lines+markers",
+                    fill="tozeroy", line=dict(color="royalblue"),
+                    marker=dict(size=8)
+                ))
+                fig_workers.add_trace(go.Scatter(
+                    x=df_store["Label"], y=df_store["Juniores"],
+                    name="Juniores", mode="lines+markers",
+                    fill="tozeroy", line=dict(color="skyblue"),
+                    marker=dict(size=8)
+                ))
+                fig_workers.update_layout(
+                    xaxis_title="Dia", yaxis_title="Trabalhadores",
+                    template="plotly_white",
+                    legend=dict(orientation="h", y=-0.25),
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig_workers, use_container_width=True)
 
-            st.subheader("Procura Prevista vs Clientes Atendidos")
+            with col_cl:
+                st.subheader("Clientes Previstos vs Atendidos")
+                fig_clients = go.Figure()
+                fig_clients.add_trace(go.Scatter(
+                    x=df_store["Label"], y=df_store["Clientes"],
+                    name="Previstos", mode="lines+markers",
+                    line=dict(color="#aab7c4", dash="dash", width=2),
+                    marker=dict(size=7, symbol="circle-open")
+                ))
+                fig_clients.add_trace(go.Scatter(
+                    x=df_store["Label"], y=df_store["Atendidos"],
+                    name="Atendidos", mode="lines+markers",
+                    line=dict(color="#2980b9", width=2),
+                    marker=dict(size=8)
+                ))
+                fig_clients.update_layout(
+                    xaxis_title="Dia", yaxis_title="Clientes",
+                    template="plotly_white",
+                    legend=dict(orientation="h", y=-0.25),
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig_clients, use_container_width=True)
 
-            fig_clients = go.Figure()
-            fig_clients.add_trace(go.Bar(
-                x=df_store["Label"],
-                y=df_store["Clientes"],
-                name="Clientes Previstos",
-                marker_color="lightgray"
-            ))
-            fig_clients.add_trace(go.Bar(
-                x=df_store["Label"],
-                y=df_store["Atendidos"],
-                name="Clientes Atendidos",
-                marker_color="steelblue"
-            ))
-            fig_clients.update_layout(
-                barmode="overlay",
-                title="Clientes Previstos vs Atendidos por Dia",
-                xaxis_title="Dia",
-                yaxis_title="Clientes",
-                template="plotly_white",
-                hovermode="x unified"
-            )
-            st.plotly_chart(fig_clients, use_container_width=True)
-
-            st.subheader("Lucro Diario")
-
-            colors = [
-                "green" if aberto else "lightcoral"
-                for aberto in df_store["Aberto"]
-            ]
+            st.subheader("Lucro Diário")
+            colors = ["#2ecc71" if aberto else "#e74c3c" for aberto in df_store["Aberto"]]
             fig_lucro = go.Figure()
             fig_lucro.add_trace(go.Bar(
-                x=df_store["Label"],
-                y=df_store["Lucro"],
+                x=df_store["Label"], y=df_store["Lucro"],
                 marker_color=colors,
-                name="Lucro Diario",
                 text=df_store["Lucro"].apply(lambda v: f"${v:,.0f}"),
                 textposition="outside"
             ))
             fig_lucro.update_layout(
-                title=f"Lucro Diario — {format_store(selected_store)} ({selected_objective})",
-                xaxis_title="Dia",
-                yaxis_title="Lucro ($)",
-                template="plotly_white",
-                showlegend=False
+                title=f"Lucro Diário — {format_store(selected_store)} ({selected_objective})",
+                xaxis_title="Dia", yaxis_title="Lucro ($)",
+                template="plotly_white", showlegend=False
             )
             st.plotly_chart(fig_lucro, use_container_width=True)
-            st.caption("Verde = dia em operacao | Vermelho = dia sem operacao")
+            st.caption("Verde = dia em operação | Vermelho = dia sem operação")
 
 
 # =========================
 # TAB 3 — ANÁLISE DE LOJAS
 # =========================
 with tab3:
+    col_f1, col_f2, col_f3 = st.columns(3)
+    with col_f1:
+        selected_objective = st.selectbox("Objetivo de Otimização", SCENARIOS, key="obj_tab3")
+    with col_f2:
+        selected_store = st.selectbox("Loja", STORES, format_func=format_store, key="store_tab3")
+    with col_f3:
+        other_stores = [s for s in STORES if s != selected_store]
+        selected_compare_store = st.selectbox(
+            "Comparar com",
+            other_stores,
+            format_func=format_store,
+            key="compare_tab3"
+        )
+
+    stores_to_compare = [selected_store, selected_compare_store]
+
     st.header("Análise Comparativa de Lojas")
     st.info(
-        f"Comparação de métricas operacionais e financeiras entre as 4 lojas "
+        f"Comparação entre **{format_store(selected_store)}** e **{format_store(selected_compare_store)}** "
         f"para o objetivo **{selected_objective}**."
     )
 
     all_store_plans = {}
-    for store in STORES:
+    for store in stores_to_compare:
         df_temp = load_store_plan(store, selected_objective)
         if df_temp is not None and not df_temp.empty:
             all_store_plans[store] = df_temp
@@ -704,200 +898,151 @@ with tab3:
 
         df_metrics = pd.DataFrame(store_metrics)
 
+        r0 = df_metrics.iloc[0]
+        r1 = df_metrics.iloc[1]
         best_store_name = df_metrics.loc[df_metrics["Lucro Líquido ($)"].idxmax(), "Loja"]
         st.success(f"Loja com maior lucro líquido semanal: **{best_store_name}**")
 
-        # Metric cards
-        cols_cards = st.columns(len(store_metrics))
-        for i, row in df_metrics.iterrows():
-            with cols_cards[i]:
-                is_best = row["Lucro Líquido ($)"] == df_metrics["Lucro Líquido ($)"].max()
-                label = f"**{row['Loja']}**" + (" ⭐" if is_best else "")
-                st.markdown(label)
-                st.metric("Lucro Líquido", f"${row['Lucro Líquido ($)']:,.0f}")
-                st.metric("Atendimento", f"{row['Taxa Atendimento (%)']:.1f}%")
-                st.metric("Dias Abertos", f"{row['Dias Abertos']}/7")
-                st.metric("Total RH", f"{row['Total RH']}")
+        # ========== METRIC CARDS ==========
+        col_a, col_b = st.columns(2)
+        for col, row in [(col_a, r0), (col_b, r1)]:
+            is_best = row["Lucro Líquido ($)"] == df_metrics["Lucro Líquido ($)"].max()
+            with col:
+                st.markdown(f"### {row['Loja']}" + (" ⭐" if is_best else ""))
+                m1, m2 = st.columns(2)
+                m1.metric("Lucro Líquido", f"${row['Lucro Líquido ($)']:,.0f}")
+                m2.metric("Taxa Atendimento", f"{row['Taxa Atendimento (%)']:.1f}%")
+                m3, m4 = st.columns(2)
+                m3.metric("Dias Abertos", f"{row['Dias Abertos']}/7")
+                m4.metric("Total RH", f"{row['Total RH']}")
 
         st.divider()
 
-        # ========== RH DISTRIBUTION ==========
-        st.subheader("Distribuição de Recursos Humanos por Loja")
-        st.caption("Total de trabalhadores mobilizados ao longo da semana, por categoria.")
+        # ========== TABELA DE COMPARAÇÃO ==========
+        st.subheader("Comparação Directa")
+        st.caption("A verde: melhor resultado em cada indicador.")
 
-        fig_rh = go.Figure()
-        fig_rh.add_trace(go.Bar(
-            x=df_metrics["Loja"],
-            y=df_metrics["Juniores"],
-            name="Juniores",
-            marker_color="skyblue",
-            text=df_metrics["Juniores"],
-            textposition="inside"
-        ))
-        fig_rh.add_trace(go.Bar(
-            x=df_metrics["Loja"],
-            y=df_metrics["Experts"],
-            name="Experts",
-            marker_color="royalblue",
-            text=df_metrics["Experts"],
-            textposition="inside"
-        ))
-        fig_rh.update_layout(
-            barmode="stack",
-            title="Total de RH por Loja (semana completa)",
-            yaxis_title="Número de Trabalhadores",
-            template="plotly_white",
-            legend=dict(orientation="h", y=-0.2)
+        comp_rows = [
+            ("Lucro Líquido ($)",      "Lucro Líquido",       "${:,.0f}", True),
+            ("Lucro Operacional ($)",  "Lucro Operacional",   "${:,.0f}", True),
+            ("Custo RH ($)",           "Custo de RH",         "${:,.0f}", False),
+            ("Total RH",               "Total Trabalhadores", "{:,}",     False),
+            ("Dias Abertos",           "Dias em Operação",    "{}/7",     True),
+            ("Clientes Atendidos",     "Clientes Atendidos",  "{:,}",     True),
+            ("Taxa Atendimento (%)",   "Taxa de Atendimento", "{:.1f}%",  True),
+            ("Unidades Vendidas",      "Unidades Vendidas",   "{:,}",     True),
+        ]
+
+        loja_a, loja_b = r0["Loja"], r1["Loja"]
+        tbl_comp = []
+        for col, label, fmt, higher_is_better in comp_rows:
+            val_a, val_b = r0[col], r1[col]
+            if higher_is_better:
+                winner_a = val_a > val_b
+                winner_b = val_b > val_a
+            else:
+                winner_a = val_a < val_b
+                winner_b = val_b < val_a
+            tbl_comp.append({
+                "Indicador": label,
+                loja_a: fmt.format(val_a) + (" ✓" if winner_a else ""),
+                loja_b: fmt.format(val_b) + (" ✓" if winner_b else ""),
+                "_win_a": winner_a,
+                "_win_b": winner_b,
+            })
+
+        df_tbl = pd.DataFrame(tbl_comp)
+
+        styled_comp = df_tbl[["Indicador", loja_a, loja_b]].style.apply(
+            lambda row: [
+                "font-weight: bold",
+                "background-color: #1a6b35; color: white" if tbl_comp[row.name]["_win_a"] else "",
+                "background-color: #1a6b35; color: white" if tbl_comp[row.name]["_win_b"] else "",
+            ],
+            axis=1
         )
-        st.plotly_chart(fig_rh, use_container_width=True)
-
-        col1_rh, col2_rh = st.columns(2)
-        with col1_rh:
-            fig_rh_ratio = px.pie(
-                df_metrics,
-                names="Loja",
-                values="Total RH",
-                title="Distribuição do RH Total entre Lojas",
-                template="plotly_white"
-            )
-            st.plotly_chart(fig_rh_ratio, use_container_width=True)
-        with col2_rh:
-            fig_custo = px.bar(
-                df_metrics,
-                x="Loja",
-                y="Custo RH ($)",
-                text=df_metrics["Custo RH ($)"].apply(lambda v: f"${v:,.0f}"),
-                title="Custo Total de RH por Loja ($)",
-                template="plotly_white",
-                color="Custo RH ($)",
-                color_continuous_scale="Reds"
-            )
-            fig_custo.update_traces(textposition="outside")
-            fig_custo.update_layout(coloraxis_showscale=False)
-            st.plotly_chart(fig_custo, use_container_width=True)
+        st.dataframe(styled_comp, use_container_width=True, hide_index=True)
 
         st.divider()
 
-        # ========== CLIENTS VS ATTENDED ==========
-        st.subheader("Clientes Previstos vs Atendidos por Loja")
+        # ========== WATERFALL — BREAKDOWN DO LUCRO ==========
+        st.subheader("Breakdown do Lucro Semanal")
+        st.caption("Receita operacional → dedução do custo fixo semanal → lucro líquido.")
 
-        col1_cl, col2_cl = st.columns(2)
-        with col1_cl:
-            fig_clients = go.Figure()
-            fig_clients.add_trace(go.Bar(
-                x=df_metrics["Loja"],
-                y=df_metrics["Clientes Previstos"],
-                name="Previstos",
-                marker_color="lightsteelblue"
-            ))
-            fig_clients.add_trace(go.Bar(
-                x=df_metrics["Loja"],
-                y=df_metrics["Clientes Atendidos"],
-                name="Atendidos",
-                marker_color="steelblue"
-            ))
-            fig_clients.update_layout(
-                barmode="group",
-                title="Clientes Previstos vs Atendidos",
-                yaxis_title="Número de Clientes",
-                template="plotly_white",
-                legend=dict(orientation="h", y=-0.2)
-            )
-            st.plotly_chart(fig_clients, use_container_width=True)
-
-        with col2_cl:
-            fig_taxa = px.bar(
-                df_metrics,
-                x="Loja",
-                y="Taxa Atendimento (%)",
-                text=df_metrics["Taxa Atendimento (%)"].apply(lambda v: f"{v:.1f}%"),
-                title="Taxa de Atendimento por Loja",
-                template="plotly_white",
-                color="Taxa Atendimento (%)",
-                color_continuous_scale="RdYlGn",
-                range_color=[0, 100]
-            )
-            fig_taxa.update_traces(textposition="outside")
-            fig_taxa.update_layout(coloraxis_showscale=False, yaxis_range=[0, 110])
-            st.plotly_chart(fig_taxa, use_container_width=True)
+        col_wf1, col_wf2 = st.columns(2)
+        for col_wf, row in [(col_wf1, r0), (col_wf2, r1)]:
+            with col_wf:
+                fig_wf = go.Figure(go.Waterfall(
+                    orientation="v",
+                    measure=["absolute", "relative", "total"],
+                    x=["Lucro Operacional", "Custo Fixo", "Lucro Líquido"],
+                    y=[row["Lucro Operacional ($)"], -row["Custo Fixo Semanal ($)"], 0],
+                    text=[
+                        f"${row['Lucro Operacional ($)']:,.0f}",
+                        f"-${row['Custo Fixo Semanal ($)']:,.0f}",
+                        f"${row['Lucro Líquido ($)']:,.0f}"
+                    ],
+                    textposition="outside",
+                    connector=dict(line=dict(color="gray")),
+                    increasing=dict(marker=dict(color="#2ecc71")),
+                    decreasing=dict(marker=dict(color="#e74c3c")),
+                    totals=dict(marker=dict(color="#3498db"))
+                ))
+                fig_wf.update_layout(
+                    title=row["Loja"],
+                    template="plotly_white",
+                    showlegend=False
+                )
+                st.plotly_chart(fig_wf, use_container_width=True)
 
         st.divider()
 
-        # ========== UNITS VS PROFIT ==========
-        st.subheader("Unidades Vendidas e Lucro por Loja")
+        # ========== HORIZONTAL BARS — RH e CLIENTES ==========
+        st.subheader("Recursos Humanos e Clientes")
 
-        col1_up, col2_up = st.columns(2)
-        with col1_up:
-            fig_units = go.Figure()
-            fig_units.add_trace(go.Bar(
-                x=df_metrics["Loja"],
-                y=df_metrics["Unidades Vendidas"],
-                marker_color="darkorange",
-                text=df_metrics["Unidades Vendidas"],
-                textposition="outside",
-                name="Unidades"
+        col_h1, col_h2 = st.columns(2)
+        with col_h1:
+            fig_rh_h = go.Figure()
+            fig_rh_h.add_trace(go.Bar(
+                y=df_metrics["Loja"], x=df_metrics["Experts"],
+                name="Experts", orientation="h", marker_color="#3498db",
+                text=df_metrics["Experts"], textposition="inside"
             ))
-            fig_units.update_layout(
-                title="Unidades Vendidas por Loja",
-                yaxis_title="Unidades",
-                template="plotly_white",
-                showlegend=False
-            )
-            st.plotly_chart(fig_units, use_container_width=True)
-
-        with col2_up:
-            colors_profit = [
-                "#1a6b35" if v == df_metrics["Lucro Líquido ($)"].max() else "#3498db"
-                for v in df_metrics["Lucro Líquido ($)"]
-            ]
-            fig_profit_bar = go.Figure()
-            fig_profit_bar.add_trace(go.Bar(
-                x=df_metrics["Loja"],
-                y=df_metrics["Lucro Líquido ($)"],
-                marker_color=colors_profit,
-                text=df_metrics["Lucro Líquido ($)"].apply(lambda v: f"${v:,.0f}"),
-                textposition="outside"
+            fig_rh_h.add_trace(go.Bar(
+                y=df_metrics["Loja"], x=df_metrics["Juniores"],
+                name="Juniores", orientation="h", marker_color="#85c1e9",
+                text=df_metrics["Juniores"], textposition="inside"
             ))
-            fig_profit_bar.update_layout(
-                title="Lucro Líquido Semanal por Loja ($)",
-                yaxis_title="Lucro ($)",
-                template="plotly_white",
-                showlegend=False
+            fig_rh_h.update_layout(
+                barmode="stack", title="Composição do RH (semana)",
+                xaxis_title="Nº Trabalhadores", template="plotly_white",
+                legend=dict(orientation="h", y=-0.25)
             )
-            st.plotly_chart(fig_profit_bar, use_container_width=True)
+            st.plotly_chart(fig_rh_h, use_container_width=True)
 
-        fig_scatter = px.scatter(
-            df_metrics,
-            x="Unidades Vendidas",
-            y="Lucro Líquido ($)",
-            text="Loja",
-            size="Clientes Atendidos",
-            color="Loja",
-            title="Unidades Vendidas vs Lucro Líquido (tamanho = clientes atendidos)",
-            template="plotly_white",
-            labels={
-                "Unidades Vendidas": "Unidades",
-                "Lucro Líquido ($)": "Lucro Líquido ($)"
-            }
-        )
-        fig_scatter.update_traces(textposition="top center")
-        st.plotly_chart(fig_scatter, use_container_width=True)
-
-        st.divider()
-
-        # ========== PROMOTIONS ==========
-        st.subheader("Análise de Promoções")
-        st.info(
-            "O otimizador não aplica promoção nos dias em operação. "
-            "Matematicamente, promoção (PR > 0%) aumenta as unidades por cliente "
-            "mas reduz a receita por unidade, resultando sempre num lucro menor. "
-            "Qualquer valor de PR nos dados refere-se a dias encerrados (sem impacto no resultado)."
-        )
+        with col_h2:
+            fig_cl_h = go.Figure()
+            fig_cl_h.add_trace(go.Bar(
+                y=df_metrics["Loja"], x=df_metrics["Clientes Previstos"],
+                name="Previstos", orientation="h", marker_color="#aed6f1",
+                text=df_metrics["Clientes Previstos"], textposition="inside"
+            ))
+            fig_cl_h.add_trace(go.Bar(
+                y=df_metrics["Loja"], x=df_metrics["Clientes Atendidos"],
+                name="Atendidos", orientation="h", marker_color="#2980b9",
+                text=df_metrics["Clientes Atendidos"], textposition="inside"
+            ))
+            fig_cl_h.update_layout(
+                barmode="group", title="Clientes Previstos vs Atendidos",
+                xaxis_title="Nº Clientes", template="plotly_white",
+                legend=dict(orientation="h", y=-0.25)
+            )
+            st.plotly_chart(fig_cl_h, use_container_width=True)
 
         st.divider()
 
         # ========== SUMMARY TABLE ==========
-        st.subheader("Tabela Resumo Completa")
+        st.subheader("Tabela Resumo")
 
         df_show = df_metrics[[
             "Loja", "Dias Abertos", "Clientes Previstos", "Clientes Atendidos",
@@ -924,6 +1069,10 @@ with tab3:
 # TAB 4 — ANÁLISE TÉCNICA
 # =========================
 with tab4:
+    selected_store = st.selectbox("Loja", STORES, format_func=format_store, key="store_tab4")
+    selected_objective = st.selectbox("Objetivo de Otimização", SCENARIOS, key="obj_tab4")
+    df_comparison = load_global_comparison(selected_store, selected_objective)
+
     st.header("Análise Técnica — Desempenho dos Algoritmos")
 
     is_global = selected_objective != "O1"
@@ -937,11 +1086,11 @@ with tab4:
             f"Objetivo **O1** — otimização local independente para **{format_store(selected_store)}**."
         )
 
+    _n_runs = _active_runs()
+    st.caption(f"Resultados baseados em **{_n_runs} runs** independentes por algoritmo.")
+
     if df_comparison is None:
-        if selected_objective == "O1":
-            st.warning(f"Ficheiro summary_{selected_store}_O1_20runs.csv não encontrado.")
-        else:
-            st.warning(f"Ficheiro global_comparison_{selected_objective}_20runs.csv não encontrado.")
+        st.warning("Ficheiro de comparação de algoritmos não encontrado para este cenário.")
     else:
         df_comp = df_comparison.copy()
 
@@ -957,7 +1106,8 @@ with tab4:
 
         st.subheader("Lucro Médio por Algoritmo (20 execuções)")
 
-        df_sorted = df_comp.sort_values("mean_profit", ascending=False).copy()
+        df_sorted = df_comp.sort_values("mean_profit", ascending=True).copy()
+        algo_labels = df_sorted["algorithm"].str.upper().str.replace("_", " ")
         bar_colors = [
             "#2ecc71" if row["algorithm"] == best_row["algorithm"] else "#3498db"
             for _, row in df_sorted.iterrows()
@@ -966,18 +1116,21 @@ with tab4:
 
         fig_compare = go.Figure()
         fig_compare.add_trace(go.Bar(
-            x=df_sorted["algorithm"].str.upper().str.replace("_", " "),
-            y=df_sorted["mean_profit"],
-            error_y=dict(type="data", array=error_vals, visible=True),
+            y=algo_labels,
+            x=df_sorted["mean_profit"],
+            orientation="h",
             marker_color=bar_colors,
+            error_x=dict(type="data", array=error_vals, visible=True),
             text=df_sorted["mean_profit"].apply(lambda v: f"${v:,.0f}"),
-            textposition="outside"
+            textposition="inside",
+            insidetextanchor="end"
         ))
         fig_compare.update_layout(
-            xaxis_title="Algoritmo",
-            yaxis_title="Lucro Médio ($)",
+            xaxis_title="Lucro Médio ($)",
             template="plotly_white",
-            showlegend=False
+            showlegend=False,
+            height=300,
+            margin=dict(r=20)
         )
         st.plotly_chart(fig_compare, use_container_width=True)
         st.caption("Verde = melhor algoritmo | Barras de erro = desvio padrão entre as 20 execuções")
@@ -1016,7 +1169,13 @@ with tab4:
 
             stores_profit = []
             for store in STORES:
-                df_temp = load_csv(REPORT_DIR / f"summary_{store}_O1_20runs.csv")
+                df_temp = load_csv(
+                    _best_runs_path(
+                        REPORT_DIR / f"summary_{store}_O1_100runs.csv",
+                        REPORT_DIR / f"summary_{store}_O1_50runs.csv",
+                        REPORT_DIR / f"summary_{store}_O1_20runs.csv",
+                    )
+                )
                 if df_temp is not None and not df_temp.empty:
                     best_algo_row = df_temp.loc[df_temp["mean_profit"].idxmax()]
                     stores_profit.append({
@@ -1090,37 +1249,122 @@ with tab4:
         )
 
         if selected_objective == "O1":
-            p_coarse = REPORT_DIR / f"convergence_{selected_store}_O1_coarse.png"
-            p_fine   = REPORT_DIR / f"convergence_{selected_store}_O1_fine.png"
+            conv_key = f"conv_O1_{selected_store}"
 
-            vista = st.radio(
-                "Vista:",
-                ["Visão Geral (coarse)", "Detalhe das primeiras iterações (fine)"],
-                horizontal=True
-            )
-
-            if vista.startswith("Visão"):
-                if p_coarse.exists():
-                    st.image(str(p_coarse), use_container_width=True,
-                             caption=f"Visão Geral — {format_store(selected_store)} | Todas as iterações")
-                else:
-                    st.warning("Gráfico de convergência (coarse) não encontrado.")
-            else:
-                if p_fine.exists():
-                    st.image(str(p_fine), use_container_width=True,
-                             caption=f"Detalhe — {format_store(selected_store)} | Primeiras iterações (zoom)")
-                else:
-                    st.warning("Gráfico de convergência (fine) não encontrado.")
-
-            with st.expander("Como interpretar este gráfico?"):
-                st.markdown(
-                    "- Cada linha representa um algoritmo de otimização.\n"
-                    "- O eixo Y mostra o melhor lucro encontrado até àquela iteração.\n"
-                    "- Uma curva que sobe rápido e estabiliza cedo indica boa convergência.\n"
-                    "- **PSO** e **Genetic** tendem a convergir para valores mais altos.\n"
-                    "- **Hill Climbing** e **Simulated Annealing** convergem depressa mas para soluções menos boas.\n"
-                    "- **Random** continua a melhorar lentamente (sem memória de iterações anteriores)."
+            col_btn, col_info = st.columns([1, 3])
+            with col_btn:
+                run_conv = st.button(
+                    "Calcular Convergência",
+                    key="btn_conv_O1",
+                    help="Executa os 6 algoritmos com iterações reduzidas e mostra a curva interativa"
                 )
+            with col_info:
+                st.caption(
+                    "Executa uma versão rápida dos 6 algoritmos e mostra a convergência "
+                    "como gráfico interativo. Muda a loja acima para comparar."
+                )
+
+            if run_conv:
+                if df_future is None:
+                    st.error("Ficheiro de previsão future_forecast_7_days.csv não encontrado.")
+                else:
+                    df_store_conv = df_future[df_future["Loja"] == selected_store].sort_values("Data")
+                    if df_store_conv.empty:
+                        st.error(f"Previsão não encontrada para {format_store(selected_store)}.")
+                    else:
+                        conv_forecast = df_store_conv["Clientes_Previstos"].round().astype(int).tolist()
+
+                        with st.spinner("A calcular convergência (pode demorar ~20 segundos)..."):
+                            try:
+                                from optimization.methods import OptimizationMethods
+
+                                algo_configs = [
+                                    ("Random Search", "random"),
+                                    ("Hill Climbing", "hill_climbing"),
+                                    ("Simulated Annealing", "simulated_annealing"),
+                                    ("Genetic", "genetic"),
+                                    ("PSO", "pso"),
+                                    ("DE", "de"),
+                                ]
+
+                                histories = {}
+                                for algo_name, method in algo_configs:
+                                    opt = OptimizationMethods(
+                                        selected_store,
+                                        conv_forecast,
+                                        objective="O1",
+                                        method=method,
+                                        seed=42
+                                    )
+                                    if method == "random":
+                                        res = opt.random_search(n_iter=80)
+                                    elif method == "hill_climbing":
+                                        res = opt.hill_climbing(max_iter=80)
+                                    elif method == "simulated_annealing":
+                                        res = opt.simulated_annealing(max_iter=80)
+                                    elif method == "genetic":
+                                        res = opt.genetic_algorithm(population_size=15, generations=20)
+                                    elif method == "pso":
+                                        res = opt.particle_swarm(n_particles=15, max_iter=20)
+                                    else:
+                                        res = opt.differential_evolution(pop_size=15, generations=20)
+                                    histories[algo_name] = res["history"]
+
+                                st.session_state[conv_key] = histories
+                                st.success("Convergência calculada com sucesso.")
+
+                            except Exception as e:
+                                st.error(f"Erro ao calcular convergência: {e}")
+
+            if conv_key in st.session_state:
+                histories = st.session_state[conv_key]
+                algo_colors = {
+                    "Random Search": "#636EFA",
+                    "Hill Climbing": "#EF553B",
+                    "Simulated Annealing": "#00CC96",
+                    "Genetic": "#AB63FA",
+                    "PSO": "#FFA15A",
+                    "DE": "#19D3F3",
+                }
+                fig_conv = go.Figure()
+                for algo, history in histories.items():
+                    fig_conv.add_trace(go.Scatter(
+                        x=list(range(len(history))),
+                        y=history,
+                        mode="lines",
+                        name=algo,
+                        line=dict(color=algo_colors.get(algo), width=2),
+                        hovertemplate=f"<b>{algo}</b><br>Iteração: %{{x}}<br>Valor: %{{y:,.2f}}<extra></extra>"
+                    ))
+                fig_conv.update_layout(
+                    title=f"Convergência — {format_store(selected_store)} | O1",
+                    xaxis_title="Iteração",
+                    yaxis_title="Melhor Lucro Encontrado ($)",
+                    template="plotly_white",
+                    hovermode="x unified",
+                    legend=dict(orientation="h", y=-0.25),
+                    height=420
+                )
+                st.plotly_chart(fig_conv, use_container_width=True)
+
+                with st.expander("Como interpretar este gráfico?"):
+                    st.markdown(
+                        "- Cada linha representa um algoritmo de otimização.\n"
+                        "- O eixo Y mostra o melhor lucro encontrado até àquela iteração.\n"
+                        "- Uma curva que sobe rapidamente e estabiliza indica boa convergência.\n"
+                        "- Passe o cursor sobre o gráfico para comparar todos os algoritmos na mesma iteração.\n"
+                        "- Os resultados aqui usam **iterações reduzidas** para velocidade — "
+                        "os resultados finais do relatório usaram mais iterações."
+                    )
+            else:
+                st.info("Clique em **Calcular Convergência** para gerar o gráfico interativo.")
+
+        elif selected_objective == "O3_NS":
+            st.info(
+                "O NSGA-II é um algoritmo **multi-objetivo** — não converge para um único valor, "
+                "mas para uma fronteira de Pareto. A qualidade do resultado está representada no "
+                "gráfico **Pareto Front** acima."
+            )
 
         else:
             conv_key = f"conv_{selected_objective}"
@@ -1221,19 +1465,16 @@ with tab4:
                         "os resultados finais do relatório usaram mais iterações."
                     )
             else:
-                p_static = REPORT_DIR / f"global_convergence_{selected_objective}.png"
-                if p_static.exists():
-                    st.caption("Gráfico estático pré-calculado. Clique em **Calcular Convergência** para versão interativa.")
-                    st.image(str(p_static), use_container_width=True,
-                             caption=f"Convergência Global — {selected_objective}")
-                else:
-                    st.info("Clique em **Calcular Convergência** para gerar o gráfico interativo.")
+                st.info("Clique em **Calcular Convergência** para gerar o gráfico interativo.")
 
 
 # =========================
 # TAB 5 — SIMULAÇÃO
 # =========================
 with tab5:
+    selected_store = st.selectbox("Loja", STORES, format_func=format_store, key="store_tab5")
+    selected_objective = st.selectbox("Objetivo de Otimização", SCENARIOS, key="obj_tab5")
+
     st.header("Simulação e Suporte à Decisão do Gestor")
     st.info(
         "Configure as preferências e restrições operacionais. "
@@ -1242,52 +1483,75 @@ with tab5:
 
     # ========== SECTION 1: PARÂMETROS ==========
     st.subheader("Parâmetros da Simulação")
+    st.caption(
+        "Ajuste as preferências do gestor e os limites operacionais. "
+        "O sistema filtra os planos que violem as restrições e classifica os restantes pelo Score."
+    )
 
-    col_p1, col_p2 = st.columns(2)
+    col_p1, col_p2 = st.columns(2, gap="large")
 
     with col_p1:
-        st.markdown("**Prioridades do Gestor**")
+        st.markdown("**Prioridade: Lucro vs. Recursos Humanos**")
+        st.caption("Define o equilíbrio entre maximizar o lucro e reduzir o número de trabalhadores.")
         peso_lucro = st.slider(
-            "Peso do Lucro na Decisão",
+            "← Mais RH     Peso do Lucro     Mais Lucro →",
             0.0, 1.0, 0.70, 0.05,
-            help="Quanto mais alto, mais o sistema prioriza maximizar o lucro vs. minimizar RH"
+            help="Deslize para a direita para priorizar lucro; para a esquerda para minimizar RH."
         )
         peso_rh = round(1.0 - peso_lucro, 2)
 
         col_w1, col_w2 = st.columns(2)
         col_w1.metric("Peso Lucro", f"{peso_lucro:.0%}")
         col_w2.metric("Peso RH", f"{peso_rh:.0%}")
+        st.caption(f"Score = **{peso_lucro:.0%} × Lucro** − **{peso_rh:.0%} × RH Total**")
 
     with col_p2:
         st.markdown("**Restrições Operacionais**")
+        st.caption("Planos que ultrapassem estes limites são excluídos da comparação.")
+
         max_rh_dia = st.slider(
-            "Máximo de RH por dia (Juniores + Experts)",
+            "Máximo de trabalhadores por dia",
             0, 200, 100, 5,
-            help="Número máximo total de trabalhadores permitido num único dia"
+            format="%d pessoas",
+            help="Dias com mais trabalhadores do que este limite são excluídos do plano simulado."
         )
-        max_pr = st.slider(
-            "Promoção máxima permitida",
-            0.0, 0.30, 0.30, 0.05,
-            format="%.2f",
-            help="Valor máximo de PR aceite nos dias de operação"
+        max_pr_pct = st.slider(
+            "Promoção máxima aceite",
+            0, 30, 30, 5,
+            format="%d%%",
+            help="Dias com uma taxa de promoção superior a este valor são excluídos."
         )
+        max_pr = max_pr_pct / 100.0
 
     st.divider()
 
     # ========== SECTION 2: CARREGAR TODOS OS CENÁRIOS ==========
+    # O1 = plano local da loja selecionada
+    # O2/O3_WEIGHTED/O3_NS = planos globais (todas as 4 lojas em conjunto)
     all_plans_sim = {}
     for obj in SCENARIOS:
-        df_temp = load_store_plan(selected_store, obj)
-        if df_temp is not None and not df_temp.empty:
-            all_plans_sim[obj] = df_temp
+        if obj == "O1":
+            df_temp = load_local_plan(selected_store)
+            if df_temp is not None and not df_temp.empty:
+                all_plans_sim[obj] = df_temp
+        else:
+            dfs = []
+            for store in STORES:
+                df_temp = load_global_plan(store, obj)
+                if df_temp is not None and not df_temp.empty:
+                    dfs.append(df_temp)
+            if dfs:
+                all_plans_sim[obj] = pd.concat(dfs, ignore_index=True)
 
     if not all_plans_sim:
         st.warning("Nenhum ficheiro de plano encontrado para esta loja.")
     else:
-        ws_sim = STORE_WS.get(selected_store, 0)
-
         sim_results = []
         for obj, df_obj in all_plans_sim.items():
+            is_global = obj != "O1"
+            ws_obj = WS_TOTAL if is_global else STORE_WS.get(selected_store, 0)
+            total_days = 28 if is_global else 7
+
             df_obj = df_obj.copy()
             df_obj["RH_Total_Dia"] = df_obj["Juniores"] + df_obj["Experts"]
 
@@ -1300,18 +1564,22 @@ with tab5:
                 sim_results.append({
                     "Objetivo": obj,
                     "Lucro Operacional ($)": 0.0,
-                    "Lucro Líquido ($)": -ws_sim,
+                    "Lucro Líquido ($)": -ws_obj,
                     "RH Total": 0,
                     "Dias Abertos": 0,
                     "Taxa Atendimento (%)": 0.0,
                     "Unidades": 0,
-                    "Score": -ws_sim * peso_lucro,
+                    "Score": -ws_obj * peso_lucro,
                     "Válido": False,
+                    "has_data": False,
+                    "is_global": is_global,
+                    "ws": ws_obj,
+                    "total_days": total_days,
                     "Observação": "Sem solução válida com estas restrições"
                 })
             else:
                 lucro_op = df_valid["Lucro"].sum()
-                lucro_liq = lucro_op - ws_sim
+                lucro_liq = lucro_op - ws_obj
                 rh_total = int(df_valid["RH_Total_Dia"].sum())
                 dias_ab = int((df_valid["Atendidos"] > 0).sum())
                 atend = df_valid["Atendidos"].sum()
@@ -1329,8 +1597,16 @@ with tab5:
                     "Taxa Atendimento (%)": round(taxa, 1),
                     "Unidades": unidades,
                     "Score": round(score, 2),
-                    "Válido": True,
-                    "Observação": f"PR médio = {df_valid['Promocao'].mean():.2f}"
+                    "Válido": lucro_liq >= 0,
+                    "has_data": True,
+                    "is_global": is_global,
+                    "ws": ws_obj,
+                    "total_days": total_days,
+                    "Observação": (
+                        "Lucro líquido negativo — restrições deste cenário tornam a operação inviável"
+                        if lucro_liq < 0
+                        else f"PR médio = {df_valid['Promocao'].mean():.2f}"
+                    )
                 })
 
         df_sim = pd.DataFrame(sim_results)
@@ -1354,19 +1630,28 @@ with tab5:
             with cards_cols[i]:
                 is_best = row["Objetivo"] == best_obj and row["Válido"]
                 header_md = f"**{row['Objetivo']}**" + (" ⭐" if is_best else "")
+                has_data = row.get("has_data", row["Válido"])
+                is_negative = has_data and not row["Válido"]
+
                 if is_best:
                     st.success(header_md)
+                elif is_negative:
+                    st.warning(header_md)
                 elif not row["Válido"]:
                     st.error(f"**{row['Objetivo']}**\nSem solução")
                 else:
                     st.info(header_md)
 
-                if row["Válido"]:
-                    st.metric("Lucro Líquido", f"${row['Lucro Líquido ($)']:,.0f}")
+                if has_data:
+                    lucro_label = "Lucro Global (4 lojas)" if row.get("is_global") else "Lucro Líquido"
+                    dias_denom = row.get("total_days", 7)
+                    st.metric(lucro_label, f"${row['Lucro Líquido ($)']:,.0f}")
                     st.metric("Score", f"{row['Score']:,.0f}")
-                    st.metric("Dias Abertos", f"{row['Dias Abertos']}/7")
+                    st.metric("Dias Abertos", f"{row['Dias Abertos']}/{dias_denom}")
                     st.metric("Atendimento", f"{row['Taxa Atendimento (%)']:.1f}%")
                     st.metric("RH Total", f"{row['RH Total']}")
+                    if is_negative:
+                        st.caption("Inviável: receita não cobre o custo fixo semanal")
 
         st.divider()
 
@@ -1378,51 +1663,45 @@ with tab5:
         ])
 
         with tab_charts_a:
-            col_la, col_lb = st.columns(2)
-            with col_la:
-                df_valid_plot = df_sim[df_sim["Válido"]].copy()
-                bar_colors_sim = [
-                    "#1a6b35" if obj == best_obj else "#3498db"
-                    for obj in df_valid_plot["Objetivo"]
-                ]
-                fig_lucro_sim = go.Figure()
-                fig_lucro_sim.add_trace(go.Bar(
-                    x=df_valid_plot["Objetivo"],
-                    y=df_valid_plot["Lucro Líquido ($)"],
-                    marker_color=bar_colors_sim,
-                    text=df_valid_plot["Lucro Líquido ($)"].apply(lambda v: f"${v:,.0f}"),
-                    textposition="outside",
-                    name="Lucro Líquido"
-                ))
-                fig_lucro_sim.update_layout(
-                    title="Lucro Líquido Semanal por Objetivo",
-                    yaxis_title="Lucro ($)",
-                    template="plotly_white",
-                    showlegend=False
-                )
-                st.plotly_chart(fig_lucro_sim, use_container_width=True)
+            df_valid_plot = df_sim[df_sim["Válido"]].copy()
 
-            with col_lb:
-                bar_colors_score = [
-                    "#1a6b35" if obj == best_obj else "#e67e22"
-                    for obj in df_valid_plot["Objetivo"]
-                ]
-                fig_score = go.Figure()
-                fig_score.add_trace(go.Bar(
-                    x=df_valid_plot["Objetivo"],
-                    y=df_valid_plot["Score"],
-                    marker_color=bar_colors_score,
-                    text=df_valid_plot["Score"].apply(lambda v: f"{v:,.0f}"),
+            fig_lucro_h = go.Figure()
+            for _, row_p in df_valid_plot.sort_values("Lucro Líquido ($)").iterrows():
+                clr = "#2ecc71" if row_p["Objetivo"] == best_obj else "#3498db"
+                fig_lucro_h.add_trace(go.Bar(
+                    y=[row_p["Objetivo"]], x=[row_p["Lucro Líquido ($)"]],
+                    orientation="h",
+                    marker_color=clr,
+                    text=f"${row_p['Lucro Líquido ($)']:,.0f}",
                     textposition="outside",
-                    name="Score"
-                ))
-                fig_score.update_layout(
-                    title=f"Score Ponderado (lucro={peso_lucro:.0%}, RH={peso_rh:.0%})",
-                    yaxis_title="Score",
-                    template="plotly_white",
                     showlegend=False
-                )
-                st.plotly_chart(fig_score, use_container_width=True)
+                ))
+            fig_lucro_h.update_layout(
+                title="Lucro Líquido por Objetivo",
+                xaxis_title="Lucro ($)",
+                template="plotly_white",
+                height=250
+            )
+            st.plotly_chart(fig_lucro_h, use_container_width=True)
+
+            st.caption(f"Score = {peso_lucro:.0%} × Lucro − {peso_rh:.0%} × RH Total")
+            score_max = df_valid_plot["Score"].max() if not df_valid_plot.empty else 1
+            indicator_cols = st.columns(len(df_valid_plot))
+            for col_ind, (_, row_p) in zip(indicator_cols, df_valid_plot.iterrows()):
+                with col_ind:
+                    fig_ind = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=row_p["Score"],
+                        title={"text": row_p["Objetivo"]},
+                        gauge=dict(
+                            axis=dict(range=[0, max(score_max * 1.1, 1)]),
+                            bar=dict(color="#2ecc71" if row_p["Objetivo"] == best_obj else "#3498db"),
+                            bgcolor="white",
+                            borderwidth=1
+                        )
+                    ))
+                    fig_ind.update_layout(height=200, margin=dict(t=40, b=10, l=20, r=20))
+                    st.plotly_chart(fig_ind, use_container_width=True)
 
         with tab_charts_b:
             df_tradeoff = df_sim[df_sim["Válido"]].copy()
@@ -1542,13 +1821,14 @@ with tab5:
             if best_obj and best_obj in all_plans_sim:
                 df_best_plan = all_plans_sim[best_obj].copy()
                 df_best_plan["RH_Total_Dia"] = df_best_plan["Juniores"] + df_best_plan["Experts"]
+                best_ws_sens = df_sim.loc[df_sim["Objetivo"] == best_obj, "ws"].iloc[0]
 
                 for rh_val in rh_range:
                     df_filt = df_best_plan[
                         (df_best_plan["RH_Total_Dia"] <= rh_val) &
                         (df_best_plan["Promocao"] <= max_pr)
                     ]
-                    lucro_s = df_filt["Lucro"].sum() - ws_sim if not df_filt.empty else -ws_sim
+                    lucro_s = df_filt["Lucro"].sum() - best_ws_sens if not df_filt.empty else -best_ws_sens
                     sensitivity_rows.append({"Max RH/dia": rh_val, "Lucro Líquido ($)": lucro_s})
 
                 df_sens = pd.DataFrame(sensitivity_rows)
@@ -1579,15 +1859,18 @@ with tab5:
 
             col_rec1, col_rec2 = st.columns([2, 1])
             with col_rec1:
+                best_ws_rec = best_row_sim.get("ws", STORE_WS.get(selected_store, 0))
+                best_days_rec = best_row_sim.get("total_days", 7)
+                lucro_liq_label = "Lucro Líquido Global (4 lojas)" if best_row_sim.get("is_global") else "Lucro Líquido"
                 st.markdown(f"""
 **Cenário recomendado: {best_obj}**
 
 | Métrica | Valor |
 |---|---|
 | Lucro Operacional | ${best_row_sim['Lucro Operacional ($)']:,.0f} |
-| Custo Fixo Semanal | ${ws_sim:,.0f} |
-| **Lucro Líquido** | **${best_row_sim['Lucro Líquido ($)']:,.0f}** |
-| Dias em Operação | {best_row_sim['Dias Abertos']}/7 |
+| Custo Fixo Semanal | ${best_ws_rec:,.0f} |
+| **{lucro_liq_label}** | **${best_row_sim['Lucro Líquido ($)']:,.0f}** |
+| Dias em Operação | {best_row_sim['Dias Abertos']}/{best_days_rec} |
 | Taxa de Atendimento | {best_row_sim['Taxa Atendimento (%)']:.1f}% |
 | Total RH (semana) | {best_row_sim['RH Total']} |
 | Score Ponderado | {best_row_sim['Score']:,.2f} |

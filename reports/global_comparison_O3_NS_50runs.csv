@@ -1,0 +1,2 @@
+objective,algorithm,mean_profit,std_profit,best_profit,worst_profit
+O3_NS,nsga2,62.44,38.16289297210053,140.0,-42.0
