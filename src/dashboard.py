@@ -1294,12 +1294,33 @@ with tab4:
                 )
                 st.plotly_chart(fig_stores, use_container_width=True)
 
-                df_store_comp["Lucro Médio ($)"] = df_store_comp["mean_profit"].apply(lambda v: f"${v:,.2f}")
-                df_store_comp["Desvio Padrão ($)"] = df_store_comp["std_profit"].apply(lambda v: f"${v:,.2f}" if pd.notna(v) else "—")
-                st.dataframe(
-                    df_store_comp[["Loja", "Melhor Algoritmo", "Lucro Médio ($)", "Desvio Padrão ($)"]],
-                    use_container_width=True, hide_index=True
+                df_rank = df_store_comp.sort_values("mean_profit", ascending=False).reset_index(drop=True)
+                rank_labels = ["#1", "#2", "#3", "#4"]
+                df_rank.insert(0, "Pos.", [rank_labels[i] if i < len(rank_labels) else f"#{i+1}" for i in range(len(df_rank))])
+                max_profit = df_rank["mean_profit"].max()
+                df_rank["vs. Líder"] = df_rank["mean_profit"].apply(
+                    lambda v: "100%" if v == max_profit else f"{v / max_profit * 100:.1f}%"
                 )
+                df_rank["Lucro Médio ($)"] = df_rank["mean_profit"].apply(lambda v: f"${v:,.2f}")
+                df_rank["Intervalo (±$)"] = df_rank["std_profit"].apply(
+                    lambda v: f"±{v:,.2f}" if pd.notna(v) and v > 0 else "—"
+                )
+
+                row_colors = [
+                    "background-color: #1a5c32; color: #a8ffb8; font-weight: bold",
+                    "background-color: #1a3050; color: #a8cfff",
+                    "background-color: #3a2e10; color: #ffe8a0",
+                    "",
+                ]
+
+                def style_rank_row(row):
+                    c = row_colors[row.name] if row.name < len(row_colors) else ""
+                    return [c] * len(row)
+
+                styled_rank = df_rank[["Pos.", "Loja", "Melhor Algoritmo", "Lucro Médio ($)", "Intervalo (±$)", "vs. Líder"]].style.apply(
+                    style_rank_row, axis=1
+                )
+                st.dataframe(styled_rank, use_container_width=True, hide_index=True)
 
         if selected_objective == "O3_NS":
             st.divider()
