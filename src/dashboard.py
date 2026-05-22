@@ -1205,15 +1205,20 @@ with tab4:
             marker_color=bar_colors,
             error_x=dict(type="data", array=error_vals, visible=True),
             text=df_sorted_asc["mean_profit"].apply(lambda v: f"${v:,.0f}"),
-            textposition="inside",
-            insidetextanchor="end"
+            textposition="outside",
+            textfont=dict(size=13, color="white"),
+            cliponaxis=False,
         ))
         fig_compare.update_layout(
             xaxis_title="Lucro Médio ($)",
+            xaxis=dict(range=[0, df_sorted_asc["mean_profit"].max() * 1.18]),
             template="plotly_white",
             showlegend=False,
             height=300,
-            margin=dict(r=20)
+            margin=dict(r=120, l=10),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
         )
         st.plotly_chart(fig_compare, use_container_width=True)
         st.caption(f"Verde = melhor algoritmo | Barras de erro = desvio padrão entre as {n_runs} execuções")
