@@ -1344,22 +1344,66 @@ with tab4:
 
         if selected_objective == "O3_NS":
             st.divider()
-            st.subheader("Pareto Front — NSGA-II")
+            st.subheader("Fronteira de Pareto — NSGA-II")
             st.caption(
-                "Cada ponto é uma solução não-dominada. O gestor escolhe o equilíbrio entre "
-                "maximizar lucro e minimizar recursos humanos."
+                "Cada ponto representa uma solução não-dominada: não é possível aumentar o lucro "
+                "sem aumentar também os recursos humanos, e vice-versa. "
+                "O gestor escolhe o compromisso desejado."
             )
             if df_pareto is not None and not df_pareto.empty:
-                fig_pareto = px.scatter(
-                    df_pareto,
-                    x="hr",
-                    y="profit",
-                    title="Pareto Front — Lucro vs Recursos Humanos",
-                    labels={"hr": "Total de RH", "profit": "Lucro ($)"},
-                    template="plotly_white"
+                df_p = df_pareto.sort_values("hr").copy()
+                df_p["Viavel"] = df_p["profit"].apply(lambda v: "Lucro positivo" if v >= 0 else "Lucro negativo")
+                best_pt = df_p.loc[df_p["profit"].idxmax()]
+
+                fig_pareto = go.Figure()
+
+                for label, color, symbol in [
+                    ("Lucro positivo", "#2ecc71", "circle"),
+                    ("Lucro negativo", "#e74c3c", "circle"),
+                ]:
+                    mask = df_p["Viavel"] == label
+                    fig_pareto.add_trace(go.Scatter(
+                        x=df_p[mask]["hr"],
+                        y=df_p[mask]["profit"],
+                        mode="markers+lines",
+                        name=label,
+                        marker=dict(size=12, color=color, symbol=symbol,
+                                    line=dict(width=1, color="white")),
+                        line=dict(color=color, width=1.5, dash="dot"),
+                        hovertemplate="<b>RH total:</b> %{x}<br><b>Lucro:</b> $%{y:,.0f}<extra></extra>",
+                    ))
+
+                fig_pareto.add_annotation(
+                    x=best_pt["hr"], y=best_pt["profit"],
+                    text=f"  Melhor: ${best_pt['profit']:,.0f} ({int(best_pt['hr'])} RH)",
+                    showarrow=True, arrowhead=2, arrowcolor="#2ecc71",
+                    font=dict(color="#2ecc71", size=13),
+                    bgcolor="rgba(0,0,0,0.5)", bordercolor="#2ecc71", borderwidth=1,
                 )
-                fig_pareto.update_traces(marker=dict(size=8, color="royalblue"))
+                fig_pareto.add_hline(
+                    y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)",
+                    annotation_text="Lucro = $0", annotation_font_color="rgba(255,255,255,0.5)",
+                )
+                fig_pareto.update_layout(
+                    xaxis_title="Total de Recursos Humanos",
+                    yaxis_title="Lucro Global ($)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="white"),
+                    xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.1)"),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.1)"),
+                    legend=dict(orientation="h", y=-0.2),
+                    height=400,
+                    margin=dict(t=20, b=60),
+                )
                 st.plotly_chart(fig_pareto, use_container_width=True)
+
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Melhor lucro (Pareto)", f"${best_pt['profit']:,.0f}",
+                          f"{int(best_pt['hr'])} trabalhadores")
+                c2.metric("Soluções na fronteira", len(df_p))
+                c3.metric("Soluções viáveis (lucro ≥ 0)",
+                          int((df_p["profit"] >= 0).sum()))
             else:
                 st.warning("Ficheiro do Pareto Front não encontrado.")
 
