@@ -1,12 +1,18 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
+
+from core.config import FIGURES_PATH, get_report_path
 
 def plot_ets_detailed():
     stores = ['baltimore', 'lancaster', 'philadelphia', 'richmond']
-    os.makedirs('reports/figures', exist_ok=True)
+    FIGURES_PATH.mkdir(parents=True, exist_ok=True)
     for store in stores:
-        df = pd.read_csv(f'reports/ets_{store}.csv', index_col=0)
+        df = pd.read_csv(get_report_path(f'ets_{store}.csv'), index_col=0)
         metrics = ['MAE', 'RMSE', 'NMAE']
         values = [df.loc[m].values[0] for m in metrics]
         plt.figure(figsize=(6, 4))
@@ -16,7 +22,7 @@ def plot_ets_detailed():
         for i, v in enumerate(values):
             plt.text(i, v, f"{v:.3f}", ha='center', va='bottom')
         plt.tight_layout()
-        plt.savefig(f'reports/figures/ets_detailed_{store}.png')
+        plt.savefig(FIGURES_PATH / f'ets_detailed_{store}.png')
         plt.close()
         print(f"[OK] Gráfico detalhado ETS criado para {store}")
 

@@ -21,7 +21,6 @@ import argparse
 from datetime import datetime
 
 # Imports
-import sys
 from pathlib import Path
 
 # Ensure src is in path
@@ -97,7 +96,7 @@ def phase_3_dss_demo():
 def run_all_phases():
     """Executa todas as fases."""
     print_header("PROJETO TIAPOSE - RETAIL OPTIMIZATION")
-    print("\nDado/hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"\nDado/hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("Modo: Todas as fases")
     
     try:
@@ -110,8 +109,8 @@ def run_all_phases():
         print("\n[OK] Todas as fases executadas com sucesso!")
         print("\nPróximos passos:")
         print("  - Usar DSS interativo: python main.py --dss")
-        print("  - Ver resultados em: ../reports/")
-        print("  - Ver modelos em: ../models/")
+        print("  - Ver resultados em: reports/")
+        print("  - Ver modelos em: models/")
         
     except Exception as e:
         print(f"\n[FAIL] Erro durante execução: {e}")
