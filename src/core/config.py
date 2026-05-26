@@ -11,9 +11,12 @@ SRC_PATH = PROJECT_ROOT / "src"
 DATA_PATH = PROJECT_ROOT / "data"
 MODELS_PATH = PROJECT_ROOT / "models"
 REPORTS_PATH = PROJECT_ROOT / "reports"
+FIGURES_PATH = REPORTS_PATH / "figures"
+ENRICHED_DATA_PATH = DATA_PATH / "enriched"
 
 # Garantir que existem
 REPORTS_PATH.mkdir(exist_ok=True)
+FIGURES_PATH.mkdir(parents=True, exist_ok=True)
 MODELS_PATH.mkdir(exist_ok=True)
 
 # Parâmetros por loja (dari especificação do projeto)
@@ -90,6 +93,10 @@ def get_data_path(store_name, raw=False):
     suffix = '' if raw else '_clean'
     return DATA_PATH / folder / f'{store_name}{suffix}.csv'
 
+def get_enriched_data_path(store_name):
+    """Retorna caminho para arquivo de dados enriquecidos."""
+    return ENRICHED_DATA_PATH / f'{store_name}_features.csv'
+
 def get_model_path(store_name, model_type):
     """Retorna caminho para arquivo de modelo.
     
@@ -106,6 +113,12 @@ def get_model_path(store_name, model_type):
         return store_path / f'{model_type}.joblib'
     else:
         return store_path / f'{model_type}.pkl'
+
+def get_xgb_horizon_model_path(store_name, horizon):
+    """Retorna caminho para um modelo XGBoost por horizonte."""
+    store_path = MODELS_PATH / store_name
+    store_path.mkdir(parents=True, exist_ok=True)
+    return store_path / f'xgb_h{horizon}.pkl'
 
 def get_report_path(filename):
     """Retorna caminho para arquivo de relatório."""

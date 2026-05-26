@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
 import numpy as np
-from core.config import STORES, get_data_path, XGBOOST_FEATURES
+from core.config import STORES, get_enriched_data_path, get_report_path, XGBOOST_FEATURES
 from forecasting.ml_model import XGBoostForecaster
 from optimization.methods import OptimizationMethods
 
@@ -18,7 +18,7 @@ def optimize_store_profit(store_name, forecast_horizon=7, objective='O1'):
     Salva plano ótimo em reports/plan_{store}_O1.csv
     """
     # Carregar dados enriquecidos (features)
-    enriched_path = Path(f'data/enriched/{store_name}_features.csv')
+    enriched_path = get_enriched_data_path(store_name)
     df = pd.read_csv(enriched_path)
     # Corrigir nomes de colunas para compatibilidade
     col_map = {
@@ -63,7 +63,7 @@ def optimize_store_profit(store_name, forecast_horizon=7, objective='O1'):
         'Experts': np.round(plan[7:14]).astype(int),
         'Promocao': np.round(plan[14:21], 3)
     })
-    out_path = Path(f'reports/plan_{store_name}_{objective}.csv')
+    out_path = get_report_path(f'plan_{store_name}_{objective}.csv')
     plan_df.to_csv(out_path, index=False)
     print(f"[OK] Plano ótimo salvo em: {out_path}")
     return plan_df, result
