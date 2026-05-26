@@ -2,8 +2,6 @@
 
 import sys
 from pathlib import Path
-from unittest import result
-
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.profit_calculator import calculate_daily_profit

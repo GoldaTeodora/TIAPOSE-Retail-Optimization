@@ -71,14 +71,14 @@ OPTIMIZATION = {
 
 # Features para XGBoost
 XGBOOST_FEATURES = [
-    'Num_Employees', 'Pct_On_Sale',
+    'Pct_On_Sale',
     'Day_of_Week', 'Is_Weekend', 'Month', 'Quarter', 'Day_of_Year',
     'Year', 'WeekOfYear', 'DayOfMonth',
     'Is_Christmas', 'Is_Easter_Sunday', 'Is_Known_Closed_Day',
     'Is_Black_Friday', 'Is_Tourist_Event', 'Is_Holiday', 'Is_Memorial_Day',
     'Event_Nearby', 'Holiday_Nearby',
     'Is_Peak_Day',
-    'Lag_Customers_1', 'Lag_Customers_7', 'Lag_Customers_14', 'Lag_Customers_28',
+    'Lag_Customers_1', 'Lag_Customers_7', 'Lag_Customers_14',
     'Rolling_Mean_7', 'Rolling_Std_7', 'Rolling_Mean_14', 'Rolling_Std_14', 'Rolling_Mean_30'
 ]
 

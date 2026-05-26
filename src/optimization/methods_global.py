@@ -1,5 +1,3 @@
-from tracemalloc import start
-from unittest import result
 
 import numpy as np
 from core.profit_calculator import calculate_daily_profit, calculate_weekly_profit, evaluate_solution_global
