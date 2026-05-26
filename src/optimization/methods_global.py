@@ -529,7 +529,7 @@ class OptimizationMethodsGlobal:
 
             
 
-    def random_search(self, n_iter=100):
+    def random_search(self, n_iter=300):
 
         best_solution = None
         best_value = -np.inf
