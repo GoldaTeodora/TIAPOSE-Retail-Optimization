@@ -1,9 +1,14 @@
-import pandas as pd
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import matplotlib.pyplot as plt
-import os
+
+from core.config import FIGURES_PATH
 
 def plot_global_comparison():
-    os.makedirs('reports/figures', exist_ok=True)
+    FIGURES_PATH.mkdir(parents=True, exist_ok=True)
     data = {
         'Baltimore': {'Naive': 0.5003, 'S_Naive': 0.3615, 'MA_7': 0.4030, 'ARIMA': 0.3001, 'ETS': 0.4827, 'XGBoost': 0.1412},
         'Lancaster': {'Naive': 0.5007, 'S_Naive': 0.3624, 'MA_7': 0.4033, 'ARIMA': 0.3458, 'ETS': 0.5394, 'XGBoost': 0.1801},
@@ -16,7 +21,7 @@ def plot_global_comparison():
         plt.title(f'Comparação Global de NMAE - {store}')
         plt.ylabel('NMAE')
         plt.tight_layout()
-        plt.savefig(f'reports/figures/global_nmae_{store.lower()}.png')
+        plt.savefig(FIGURES_PATH / f'global_nmae_{store.lower()}.png')
         plt.close()
         print(f"[OK] Gráfico global NMAE criado para {store}")
 

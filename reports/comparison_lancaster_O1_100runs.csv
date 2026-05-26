@@ -1,0 +1,13 @@
+store,objective,pr_type,algorithm,mean_profit,std_profit
+lancaster,O1,coarse,random,4045.2,108.56113485036897
+lancaster,O1,coarse,hill_climbing,3487.38,424.73012090031943
+lancaster,O1,coarse,simulated_annealing,3326.41,428.8004219913968
+lancaster,O1,coarse,genetic,4476.51,83.6529132786181
+lancaster,O1,coarse,pso,4476.77,108.18972733120275
+lancaster,O1,coarse,de,3943.72,127.09091863701356
+lancaster,O1,fine,random,4098.76,102.82111845336054
+lancaster,O1,fine,hill_climbing,3500.39,424.89614954715705
+lancaster,O1,fine,simulated_annealing,3381.73,446.5955408420465
+lancaster,O1,fine,genetic,4595.02,73.56887657155028
+lancaster,O1,fine,pso,4524.94,95.90024191836015
+lancaster,O1,fine,de,4000.01,126.37756881662187

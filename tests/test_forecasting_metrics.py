@@ -1,5 +1,9 @@
 import unittest
 import numpy as np
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.metrics import calculate_all_metrics, calculate_basic_metrics, calculate_regression_metrics
 

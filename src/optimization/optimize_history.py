@@ -8,12 +8,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
 import numpy as np
-from core.config import STORES, get_data_path, get_report_path, XGBOOST_FEATURES
+from core.config import STORES, REPORTS_PATH, get_enriched_data_path, get_report_path, XGBOOST_FEATURES
 from forecasting.ml_model import XGBoostForecaster
 from optimization.methods import OptimizationMethods
 from core.profit_calculator import calculate_weekly_profit
 
-REPORTS_DIR = Path('reports')
+REPORTS_DIR = REPORTS_PATH
 REPORTS_DIR.mkdir(exist_ok=True)
 
 WINDOW = 7
@@ -21,7 +21,7 @@ TRAIN_MIN = 365  # mínimo 1 ano para treinar
 
 def optimize_history_for_store(store_name, objective='O1'):
     print(f"\n[STORE] {store_name.upper()}")
-    enriched_path = Path(f'data/enriched/{store_name}_features.csv')
+    enriched_path = get_enriched_data_path(store_name)
     df = pd.read_csv(enriched_path)
     # Corrigir nomes de colunas para compatibilidade
     col_map = {
@@ -71,7 +71,7 @@ def optimize_history_for_store(store_name, objective='O1'):
                 'J': J[i],
                 'X': Xs[i],
                 'PR': PR[i],
-                'is_weekend': i >= 5
+                'is_weekend': (i == 0) or (i == 6)
             })
         profit_info = calculate_weekly_profit(daily_plans, store_name)
 

@@ -1,0 +1,13 @@
+store,objective,pr_type,algorithm,mean_profit,std_profit
+baltimore,O1,coarse,random,2724.3,93.5756912878553
+baltimore,O1,coarse,hill_climbing,2406.45,252.61046593520228
+baltimore,O1,coarse,simulated_annealing,2220.45,282.414672954505
+baltimore,O1,coarse,genetic,3018.4,69.33642621306639
+baltimore,O1,coarse,pso,3220.15,118.46192426260853
+baltimore,O1,coarse,de,2667.35,105.11435439558196
+baltimore,O1,fine,random,2627.85,57.82756695556194
+baltimore,O1,fine,hill_climbing,2405.6,252.85339625957172
+baltimore,O1,fine,simulated_annealing,2186.2,291.63291995246357
+baltimore,O1,fine,genetic,2937.5,90.43312446222346
+baltimore,O1,fine,pso,3175.2,105.67431097480598
+baltimore,O1,fine,de,2631.15,90.32678174273673

@@ -1,0 +1,13 @@
+algorithm,pr_type,mean_profit
+de,coarse,6480.7
+de,fine,6371.35
+genetic,coarse,7113.3
+genetic,fine,6868.85
+hill_climbing,coarse,5810.35
+hill_climbing,fine,5810.35
+pso,coarse,7378.2
+pso,fine,7367.0
+random,coarse,6376.95
+random,fine,6215.2
+simulated_annealing,coarse,5502.8
+simulated_annealing,fine,5401.35

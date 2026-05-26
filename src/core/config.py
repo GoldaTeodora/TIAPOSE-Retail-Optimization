@@ -11,9 +11,12 @@ SRC_PATH = PROJECT_ROOT / "src"
 DATA_PATH = PROJECT_ROOT / "data"
 MODELS_PATH = PROJECT_ROOT / "models"
 REPORTS_PATH = PROJECT_ROOT / "reports"
+FIGURES_PATH = REPORTS_PATH / "figures"
+ENRICHED_DATA_PATH = DATA_PATH / "enriched"
 
 # Garantir que existem
 REPORTS_PATH.mkdir(exist_ok=True)
+FIGURES_PATH.mkdir(parents=True, exist_ok=True)
 MODELS_PATH.mkdir(exist_ok=True)
 
 # Parâmetros por loja (dari especificação do projeto)
@@ -42,8 +45,8 @@ STORE_PARAMS = {
 
 # Custos diários de RH
 HR_COSTS = {
-    'weekday': {'J': 60, 'X': 80},   # Junior e Expert em semana
-    'weekend': {'J': 70, 'X': 95}    # Junior e Expert no fim de semana
+    'weekday': {'J': 60, 'X': 80},
+    'weekend': {'J': 70, 'X': 95}
 }
 
 # Capacidade de atendimento
@@ -71,14 +74,14 @@ OPTIMIZATION = {
 
 # Features para XGBoost
 XGBOOST_FEATURES = [
-    'Num_Employees', 'Pct_On_Sale',
+    'Pct_On_Sale',
     'Day_of_Week', 'Is_Weekend', 'Month', 'Quarter', 'Day_of_Year',
     'Year', 'WeekOfYear', 'DayOfMonth',
     'Is_Christmas', 'Is_Easter_Sunday', 'Is_Known_Closed_Day',
     'Is_Black_Friday', 'Is_Tourist_Event', 'Is_Holiday', 'Is_Memorial_Day',
     'Event_Nearby', 'Holiday_Nearby',
     'Is_Peak_Day',
-    'Lag_Customers_1', 'Lag_Customers_7', 'Lag_Customers_14', 'Lag_Customers_28',
+    'Lag_Customers_1', 'Lag_Customers_7', 'Lag_Customers_14',
     'Rolling_Mean_7', 'Rolling_Std_7', 'Rolling_Mean_14', 'Rolling_Std_14', 'Rolling_Mean_30'
 ]
 
@@ -89,6 +92,10 @@ def get_data_path(store_name, raw=False):
     folder = 'raw' if raw else 'processed'
     suffix = '' if raw else '_clean'
     return DATA_PATH / folder / f'{store_name}{suffix}.csv'
+
+def get_enriched_data_path(store_name):
+    """Retorna caminho para arquivo de dados enriquecidos."""
+    return ENRICHED_DATA_PATH / f'{store_name}_features.csv'
 
 def get_model_path(store_name, model_type):
     """Retorna caminho para arquivo de modelo.
@@ -106,6 +113,12 @@ def get_model_path(store_name, model_type):
         return store_path / f'{model_type}.joblib'
     else:
         return store_path / f'{model_type}.pkl'
+
+def get_xgb_horizon_model_path(store_name, horizon):
+    """Retorna caminho para um modelo XGBoost por horizonte."""
+    store_path = MODELS_PATH / store_name
+    store_path.mkdir(parents=True, exist_ok=True)
+    return store_path / f'xgb_h{horizon}.pkl'
 
 def get_report_path(filename):
     """Retorna caminho para arquivo de relatório."""
